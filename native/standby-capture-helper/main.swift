@@ -400,10 +400,15 @@ final class SystemAudioTap {
         var succeeded = false
         defer { if !succeeded { teardown() } }
 
-        // 1. Global mixdown of all output (every participant). The operator's own
-        //    mic does not flow to local output, so a per-PID tap is a later
-        //    mic-bleed refinement, not needed for correctness here.
-        let description = CATapDescription(stereoMixdownOfProcesses: [])
+        // 1. Global tap of ALL process output (every participant), excluding none.
+        //    CRITICAL: `stereoMixdownOfProcesses: []` taps ZERO processes (silence) —
+        //    it mixes down the *listed* processes, and the list is empty. The
+        //    global-tap-but-exclude initializer is what captures everything; an
+        //    empty exclude list means "exclude nothing". (Compiles either way; only
+        //    live capture reveals the difference — it did.) The operator's own mic
+        //    does not flow to local output, so a per-PID tap is a later mic-bleed
+        //    refinement, not needed for correctness here.
+        let description = CATapDescription(monoGlobalTapButExcludeProcesses: [])
         description.name = "StandbyCaptureTap"
         description.isPrivate = true
         description.isExclusive = false
@@ -422,38 +427,22 @@ final class SystemAudioTap {
         // 2. The tap's stream format.
         let tapFormat = try Self.readTapFormat(tapID)
         self.format = tapFormat
+        logErr("tap format: \(tapFormat.sampleRate)Hz ch=\(tapFormat.channelCount) interleaved=\(tapFormat.isInterleaved) commonFormat=\(tapFormat.commonFormat.rawValue)")
 
-        // 3. Private aggregate device: the tap as a sub-tap with the REAL default
-        //    output as the main sub-device. tap-as-main with no real sub-device
-        //    yields silence-with-noErr, so a missing default output must FAIL (not
-        //    silently produce a live-looking, empty lane) — fall back to SCStream.
-        guard let outputUID = Self.defaultOutputDeviceUID() else {
-            throw TapError.setupFailed(0, "no default output device (tap would yield silence)")
-        }
-        // CoreAudio wants CFNumber (0/1) for these flags, NOT CFBoolean. A Swift
-        // `true` bridges to kCFBooleanTrue, and some HAL versions then silently
-        // ignore the key — e.g. drift compensation stays OFF, the documented cause
-        // of crackling/silence at 20–40 min. Pass Int so each bridges to CFNumber.
+        // 3. Private aggregate device exposing the tap. Follows the minimal working
+        //    reference (MiniMeters gist / insidegui/AudioCap): the TAP alone drives
+        //    the aggregate — NO hardware sub-device, NO main sub-device. Live-tested:
+        //    adding the default output as a main sub-device prevented the IOProc from
+        //    ever firing on this machine. A tap-only aggregate also sidesteps
+        //    hardware/tap clock drift entirely (there is no second clock to drift).
         let aggUID = "com.standby.capture.aggregate.\(description.uuid.uuidString)"
         let aggDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey as String: "StandbyCaptureAggregate",
             kAudioAggregateDeviceUIDKey as String: aggUID,
-            kAudioAggregateDeviceIsPrivateKey as String: 1,
-            kAudioAggregateDeviceIsStackedKey as String: 0,
-            kAudioAggregateDeviceTapAutoStartKey as String: 1,
-            // kAudioAggregateDeviceMainSubDeviceKey resolves to "master" in the SDK.
-            kAudioAggregateDeviceMainSubDeviceKey as String: outputUID,
-            kAudioAggregateDeviceSubDeviceListKey as String: [
-                [
-                    kAudioSubDeviceUIDKey as String: outputUID,
-                    kAudioSubDeviceDriftCompensationKey as String: 1,
-                ]
-            ],
+            kAudioAggregateDeviceIsPrivateKey as String: true,
+            kAudioAggregateDeviceTapAutoStartKey as String: false,
             kAudioAggregateDeviceTapListKey as String: [
-                [
-                    kAudioSubTapUIDKey as String: description.uuid.uuidString,
-                    kAudioSubTapDriftCompensationKey as String: 1,
-                ]
+                [kAudioSubTapUIDKey as String: description.uuid.uuidString]
             ],
         ]
 
@@ -463,19 +452,48 @@ final class SystemAudioTap {
             throw TapError.setupFailed(aggStatus, "AudioHardwareCreateAggregateDevice")
         }
         aggregateID = newAgg
+        // NOTE: setting kAudioDevicePropertyBufferFrameSize on the aggregate HANGS
+        // the HAL here (live-tested — wedges between tap-format and tap-start). The
+        // tap delivers ~512-frame buffers (~93/sec); the per-buffer overhead is
+        // reduced in software instead (see the coalescing accumulator below).
 
         // 4. IOProc on the aggregate. The block runs on ioQueue (no CFRunLoop). It
         //    wraps the input buffer list no-copy, copies it (the list is only valid
         //    for the call), and hands the owned buffer to the lane.
         let onBuffer = self.onBuffer
         let fmt = tapFormat
+        // Coalesce the tap's small (~512-frame) buffers into ~4096-frame chunks so
+        // the downstream convert + transcriber feed runs ~12/sec instead of ~93/sec.
+        // The small-buffer rate (live-tested) starved the mic lane's consumer and
+        // dropped ~25% of its audio over a 10-min capture. The IOProc is serial on
+        // ioQueue, so the accumulator needs no lock. (Setting the device buffer size
+        // directly hangs the HAL, so we coalesce in software instead.)
+        let coalesceTarget: AVAudioFrameCount = 4096
+        guard let accumulator = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: coalesceTarget + 1024)
+        else { throw TapError.setupFailed(0, "could not allocate tap coalescing buffer") }
+        var accumFrames: AVAudioFrameCount = 0
+        let firstCall = Atomic<Bool>(true)
         var newProc: AudioDeviceIOProcID?
         let procStatus = AudioDeviceCreateIOProcIDWithBlock(&newProc, aggregateID, ioQueue) {
             _, inInputData, _, _, _ in
+            if firstCall.exchange(false, ordering: .relaxed) {
+                logErr("tap ioproc firing (coalescing to \(coalesceTarget) frames)")
+            }
             guard let wrapped = AVAudioPCMBuffer(pcmFormat: fmt, bufferListNoCopy: inInputData),
-                let owned = copyPCM(wrapped)
+                let src = wrapped.floatChannelData, let dst = accumulator.floatChannelData
             else { return }
-            onBuffer(owned)
+            let incoming = wrapped.frameLength
+            if incoming == 0 { return }
+            let toCopy = min(incoming, accumulator.frameCapacity - accumFrames)
+            memcpy(
+                dst[0].advanced(by: Int(accumFrames)), src[0],
+                Int(toCopy) * MemoryLayout<Float>.size)
+            accumFrames += toCopy
+            if accumFrames >= coalesceTarget {
+                accumulator.frameLength = accumFrames
+                if let owned = copyPCM(accumulator) { onBuffer(owned) }
+                accumFrames = 0
+            }
         }
         guard procStatus == noErr, let proc = newProc else {
             throw TapError.setupFailed(procStatus, "AudioDeviceCreateIOProcIDWithBlock")
@@ -521,31 +539,6 @@ final class SystemAudioTap {
             throw TapError.setupFailed(status, "kAudioTapPropertyFormat")
         }
         return format
-    }
-
-    private static func defaultOutputDeviceUID() -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var device = AudioObjectID(kAudioObjectUnknown)
-        var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        guard
-            AudioObjectGetPropertyData(
-                AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
-            device != kAudioObjectUnknown
-        else { return nil }
-
-        var uidAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var uid: CFString = "" as CFString
-        var uidSize = UInt32(MemoryLayout<CFString>.size)
-        let status = withUnsafeMutablePointer(to: &uid) { pointer in
-            AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &uidSize, pointer)
-        }
-        return status == noErr ? (uid as String) : nil
     }
 }
 
@@ -778,18 +771,33 @@ func runCapture(mode: String, seconds: Double?) async {
         var systemStarted = false
         if #available(macOS 14.2, *) {
             let tap = SystemAudioTap { buffer in lane.submit(buffer) }
+            // Hard watchdog: tap.start() is synchronous and a HAL call inside can
+            // wedge (observed). If it does, the consumer TaskGroup never starts and
+            // SIGTERM can't be handled, so exit() from a background queue is the only
+            // escape. Fires ONLY on a genuine hang (cleared on every real outcome).
+            let tapDone = Atomic<Bool>(false)
+            armWatchdog(8) {
+                if !tapDone.load(ordering: .relaxed) {
+                    failAndExit(
+                        reason: "unknown", lane: "system_audio",
+                        detail: "Core Audio tap setup did not complete in 8s (HAL wedge)")
+                }
+            }
             do {
                 try tap.start()
+                tapDone.store(true, ordering: .relaxed)
                 stopSystemTap = { tap.stop() }
                 systemStarted = true
                 logErr("system audio: Core Audio process tap active (output-independent)")
             } catch SystemAudioTap.TapError.notPermitted {
+                tapDone.store(true, ordering: .relaxed)
                 // Attempt-and-classify: the tap's own TCC tier, distinct from
                 // Screen Recording. No public pre-check exists; this is the signal.
                 failAndExit(
                     reason: "system_audio_permission_denied", lane: "system_audio",
                     detail: "Core Audio tap not permitted — grant System Settings › Privacy & Security › System Audio Recording")
             } catch {
+                tapDone.store(true, ordering: .relaxed)
                 logErr("system audio: tap unavailable (\(error)); falling back to ScreenCaptureKit")
             }
         }

@@ -1,5 +1,7 @@
 use crate::{
-    AgentJobSpec, Artifact, MeetingEvent, MeetingProjection, Proposal, new_id, now_rfc3339ish,
+    AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioLane, AudioLevel, Meeting, MeetingEvent,
+    MeetingProjection, Proposal, SourceFailed, SourceFailure, SourceStarted, SourceState,
+    SourceStatus, TranscriptSegment, TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
 };
 use anyhow::{Context, Result};
 use rusqlite::types::Type;
@@ -97,30 +99,104 @@ impl EventStore {
         let mut proposals = Vec::new();
         let mut jobs = Vec::new();
         let mut artifacts = Vec::new();
+        let mut partial: Option<TranscriptSegment> = None;
+        let mut source = SourceState::default();
+        let mut title: Option<String> = None;
 
         for event in &events {
             match event.event_type.as_str() {
-                "transcript.segment.final" => transcript.push(decode(&event.payload_json)?),
-                "proposal.created" | "proposal.approved" | "proposal.ignored" => {
+                event_types::MEETING_STARTED => {
+                    let meeting: Meeting = decode(&event.payload_json)?;
+                    if meeting.title.is_some() {
+                        title = meeting.title;
+                    }
+                    if let Some(mode) = meeting.mode {
+                        source.mode = Some(mode);
+                    }
+                }
+                event_types::SOURCE_STARTED => {
+                    let started: SourceStarted = decode(&event.payload_json)?;
+                    let (mic, system) = started.mode.lanes();
+                    source.source = Some(started.source);
+                    source.mode = Some(started.mode);
+                    source.microphone.expected = mic;
+                    source.system_audio.expected = system;
+                    source.started = true;
+                    source.stopped = false;
+                    source.failure = None;
+                    source.status = SourceStatus::Capturing;
+                }
+                event_types::AUDIO_LEVEL => {
+                    let level: AudioLevel = decode(&event.payload_json)?;
+                    let lane = match level.lane {
+                        AudioLane::Microphone => &mut source.microphone,
+                        AudioLane::SystemAudio => &mut source.system_audio,
+                    };
+                    lane.expected = true;
+                    lane.last_rms = Some(level.rms);
+                    lane.captured_ms = lane.captured_ms.max(level.captured_ms);
+                    lane.level_events += 1;
+                    if level.rms >= AUDIO_ACTIVE_RMS {
+                        lane.active = true;
+                    }
+                }
+                event_types::SEGMENT_PARTIAL => {
+                    let segment: TranscriptSegment = decode(&event.payload_json)?;
+                    partial = Some(segment);
+                    if matches!(source.status, SourceStatus::Capturing) {
+                        source.status = SourceStatus::Transcribing;
+                    }
+                }
+                event_types::SEGMENT_FINAL => {
+                    let segment: TranscriptSegment = decode(&event.payload_json)?;
+                    partial = None;
+                    if matches!(source.status, SourceStatus::Capturing) {
+                        source.status = SourceStatus::Transcribing;
+                    }
+                    transcript.push(segment);
+                }
+                event_types::SOURCE_FAILED => {
+                    let failed: SourceFailed = decode(&event.payload_json)?;
+                    source.source = Some(failed.source);
+                    source.failure = Some(SourceFailure {
+                        reason: failed.reason,
+                        lane: failed.lane,
+                        detail: failed.detail,
+                    });
+                    source.status = SourceStatus::Failed;
+                }
+                event_types::SOURCE_STOPPED => {
+                    source.stopped = true;
+                    if source.status != SourceStatus::Failed {
+                        source.status = SourceStatus::Stopped;
+                    }
+                }
+                event_types::PROPOSAL_CREATED
+                | event_types::PROPOSAL_APPROVED
+                | event_types::PROPOSAL_IGNORED => {
                     upsert_by_id(&mut proposals, decode::<Proposal>(&event.payload_json)?);
                 }
-                "agent_job.requested"
-                | "agent_job.started"
-                | "agent_job.progress"
-                | "agent_job.completed"
-                | "agent_job.failed"
-                | "agent_job.canceled" => {
+                event_types::JOB_REQUESTED
+                | event_types::JOB_STARTED
+                | event_types::JOB_PROGRESS
+                | event_types::JOB_COMPLETED
+                | event_types::JOB_FAILED
+                | event_types::JOB_CANCELED => {
                     upsert_by_id(&mut jobs, decode::<AgentJobSpec>(&event.payload_json)?);
                 }
-                "artifact.created" => artifacts.push(decode(&event.payload_json)?),
+                event_types::ARTIFACT_CREATED => artifacts.push(decode(&event.payload_json)?),
                 _ => {}
             }
         }
 
+        derive_source_status(&mut source, &transcript);
+
         Ok(MeetingProjection {
             meeting_id: meeting_id.to_string(),
-            title: Some("Acme / Q2 Planning".to_string()),
+            title,
             transcript,
+            partial,
+            source,
             proposals,
             jobs,
             artifacts,
@@ -186,6 +262,44 @@ fn decode<T: DeserializeOwned>(value: &Value) -> Result<T> {
     serde_json::from_value(value.clone()).context("decode event payload")
 }
 
+/// Resolve the final honest source status from replayed facts. Distinguishes
+/// demo seeding (no real source) from a silent lane during live capture.
+fn derive_source_status(source: &mut SourceState, transcript: &[TranscriptSegment]) {
+    if !source.started && source.failure.is_none() {
+        if transcript
+            .iter()
+            .any(|segment| segment.source == TranscriptSourceKind::Demo)
+        {
+            source.status = SourceStatus::Demo;
+        }
+        return;
+    }
+
+    if source.stopped || source.failure.is_some() {
+        return;
+    }
+
+    // A lane that has reported levels but never crossed the active threshold is
+    // an expected-but-silent lane: surface it instead of pretending it's live.
+    let mic_silent = source.microphone.expected
+        && !source.microphone.active
+        && source.microphone.level_events > 0;
+    let system_silent = source.system_audio.expected
+        && !source.system_audio.active
+        && source.system_audio.level_events > 0;
+
+    if matches!(
+        source.status,
+        SourceStatus::Capturing | SourceStatus::Transcribing
+    ) {
+        if system_silent && !mic_silent {
+            source.status = SourceStatus::NoSystemAudio;
+        } else if mic_silent && !system_silent {
+            source.status = SourceStatus::NoMicAudio;
+        }
+    }
+}
+
 fn upsert_by_id<T>(items: &mut Vec<T>, item: T)
 where
     T: HasId,
@@ -222,7 +336,197 @@ impl HasId for Artifact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProposalKind, ProposalStatus, WorkerKind};
+    use crate::{
+        AudioLane, AudioLevel, CaptureMode, ProposalKind, ProposalStatus, SourceFailed,
+        SourceFailureReason, SourceStarted, SourceStatus, TranscriptSourceKind, WorkerKind,
+        demo_segments,
+    };
+
+    fn seg(
+        meeting: &str,
+        id: &str,
+        text: &str,
+        is_final: bool,
+        source: TranscriptSourceKind,
+    ) -> TranscriptSegment {
+        TranscriptSegment {
+            id: id.to_string(),
+            meeting_id: meeting.to_string(),
+            speaker: Some("me".to_string()),
+            start_ms: 0,
+            end_ms: 1_000,
+            text: text.to_string(),
+            is_final,
+            confidence: None,
+            source,
+        }
+    }
+
+    #[test]
+    fn projection_reports_no_system_audio_when_system_lane_silent() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_no_sys";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::MicAndSystem,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::AUDIO_LEVEL,
+                None,
+                None,
+                &AudioLevel {
+                    meeting_id: meeting.to_string(),
+                    lane: AudioLane::Microphone,
+                    rms: 0.08,
+                    peak: Some(0.2),
+                    captured_ms: 1_000,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::AUDIO_LEVEL,
+                None,
+                None,
+                &AudioLevel {
+                    meeting_id: meeting.to_string(),
+                    lane: AudioLane::SystemAudio,
+                    rms: 0.0,
+                    peak: Some(0.0),
+                    captured_ms: 1_000,
+                },
+            )
+            .unwrap();
+
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.status, SourceStatus::NoSystemAudio);
+        assert!(projection.source.microphone.active);
+        assert!(!projection.source.system_audio.active);
+        assert!(projection.source.system_audio.expected);
+    }
+
+    #[test]
+    fn projection_tracks_partial_then_final_segment() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_partial";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::Mic,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::SEGMENT_PARTIAL,
+                None,
+                None,
+                &seg(meeting, "s1", "lets research", false, TranscriptSourceKind::LocalMac),
+            )
+            .unwrap();
+
+        let mid = store.projection(meeting).unwrap();
+        assert_eq!(mid.source.status, SourceStatus::Transcribing);
+        assert!(mid.partial.is_some());
+        assert_eq!(mid.transcript.len(), 0);
+
+        store
+            .append(
+                meeting,
+                event_types::SEGMENT_FINAL,
+                None,
+                None,
+                &seg(
+                    meeting,
+                    "s1",
+                    "lets research prior art",
+                    true,
+                    TranscriptSourceKind::LocalMac,
+                ),
+            )
+            .unwrap();
+
+        let done = store.projection(meeting).unwrap();
+        assert!(done.partial.is_none());
+        assert_eq!(done.transcript.len(), 1);
+        assert!(done.transcript[0].is_final);
+    }
+
+    #[test]
+    fn projection_marks_demo_status_for_seeded_demo_segments() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_demo";
+        for segment in demo_segments(meeting) {
+            store
+                .append(meeting, event_types::SEGMENT_FINAL, None, None, &segment)
+                .unwrap();
+        }
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.status, SourceStatus::Demo);
+        assert!(!projection.source.started);
+    }
+
+    #[test]
+    fn projection_surfaces_source_failure_reason() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_fail";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::MicAndSystem,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_FAILED,
+                None,
+                None,
+                &SourceFailed {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    reason: SourceFailureReason::ScreenRecordingPermissionDenied,
+                    lane: Some(AudioLane::SystemAudio),
+                    detail: Some("screen recording permission denied".to_string()),
+                },
+            )
+            .unwrap();
+
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.status, SourceStatus::Failed);
+        let failure = projection.source.failure.expect("failure present");
+        assert_eq!(
+            failure.reason,
+            SourceFailureReason::ScreenRecordingPermissionDenied
+        );
+        assert_eq!(failure.lane, Some(AudioLane::SystemAudio));
+    }
 
     #[test]
     fn projection_replays_latest_proposal_state() {

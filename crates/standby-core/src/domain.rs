@@ -54,6 +54,161 @@ pub enum JobStatus {
     Canceled,
 }
 
+/// How the local capture path was asked to listen. Mirrors the native helper's
+/// `--mode` argument; provider adapters may add their own modes later.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureMode {
+    Mic,
+    System,
+    #[default]
+    MicAndSystem,
+}
+
+impl CaptureMode {
+    /// Which lanes a mode is expected to produce, as `(microphone, system_audio)`.
+    pub fn lanes(&self) -> (bool, bool) {
+        match self {
+            CaptureMode::Mic => (true, false),
+            CaptureMode::System => (false, true),
+            CaptureMode::MicAndSystem => (true, true),
+        }
+    }
+}
+
+/// A single capture lane. Local capture only distinguishes `me` (microphone)
+/// from `system_audio`; richer speaker identity is a provider-adapter concern.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioLane {
+    Microphone,
+    SystemAudio,
+}
+
+/// The honest, projected state of the capture source. The UI must never show a
+/// generic "Live" when the real state is one of these.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceStatus {
+    #[default]
+    Idle,
+    Demo,
+    WaitingPermission,
+    Capturing,
+    Transcribing,
+    NoMicAudio,
+    NoSystemAudio,
+    Failed,
+    Stopped,
+}
+
+/// Why a capture source failed. Permission reasons are specific so the UI can
+/// tell the operator exactly which macOS permission to grant.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceFailureReason {
+    MicPermissionDenied,
+    ScreenRecordingPermissionDenied,
+    NoInputDevice,
+    HelperCrashed,
+    Unsupported,
+    Unknown,
+}
+
+/// Why an agent job failed. Drives a visible failure card with a receipt path,
+/// never a silent spinner.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JobFailureReason {
+    CliNotFound,
+    AuthRequired,
+    Timeout,
+    NonzeroExit,
+    SandboxViolation,
+    Canceled,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SourceFailure {
+    pub reason: SourceFailureReason,
+    pub lane: Option<AudioLane>,
+    pub detail: Option<String>,
+}
+
+/// Projected activity for a single capture lane. `active` flips true only after
+/// a level event at or above [`AUDIO_ACTIVE_RMS`]; `level_events > 0 && !active`
+/// is the signal for an expected-but-silent lane (no-mic / no-system-audio).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct LaneState {
+    pub expected: bool,
+    pub active: bool,
+    pub last_rms: Option<f32>,
+    pub captured_ms: u64,
+    pub level_events: u32,
+}
+
+/// The projected capture state for a meeting, derived from source/audio events.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct SourceState {
+    pub status: SourceStatus,
+    pub source: Option<TranscriptSourceKind>,
+    pub mode: Option<CaptureMode>,
+    pub microphone: LaneState,
+    pub system_audio: LaneState,
+    pub failure: Option<SourceFailure>,
+    pub started: bool,
+    pub stopped: bool,
+}
+
+/// `meeting.started` payload — carries the honest meeting title and mode instead
+/// of a hard-coded demo title.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Meeting {
+    pub id: String,
+    pub title: Option<String>,
+    pub mode: Option<CaptureMode>,
+}
+
+/// `transcript.source.started` payload.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SourceStarted {
+    pub meeting_id: String,
+    pub source: TranscriptSourceKind,
+    pub mode: CaptureMode,
+}
+
+/// `transcript.source.failed` payload.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SourceFailed {
+    pub meeting_id: String,
+    pub source: TranscriptSourceKind,
+    pub reason: SourceFailureReason,
+    pub lane: Option<AudioLane>,
+    pub detail: Option<String>,
+}
+
+/// `transcript.source.stopped` payload.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SourceStopped {
+    pub meeting_id: String,
+    pub source: TranscriptSourceKind,
+}
+
+/// `audio.source.level` payload — one sanitized loudness sample for a lane.
+/// Carries no audio content, only metrics.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AudioLevel {
+    pub meeting_id: String,
+    pub lane: AudioLane,
+    pub rms: f32,
+    pub peak: Option<f32>,
+    pub captured_ms: u64,
+}
+
+/// RMS at or above this counts a lane as carrying real audio.
+pub const AUDIO_ACTIVE_RMS: f32 = 0.005;
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TranscriptSegment {
     pub id: String,
@@ -141,6 +296,21 @@ pub struct AgentJobSpec {
     pub deliverable: DeliverableSpec,
     pub permissions: PermissionProfile,
     pub status: JobStatus,
+    /// Worker profile id that ran (or will run) this job, e.g. `claude-research`.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Latest human-readable progress note streamed from the worker.
+    #[serde(default)]
+    pub progress_note: Option<String>,
+    /// Why the job failed, when it did. Pairs with `error` + `receipt_path`.
+    #[serde(default)]
+    pub failure_reason: Option<JobFailureReason>,
+    /// Failure detail (sanitized stderr tail or sandbox-denial message).
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Path to the on-disk receipt (stdout/stderr/exit) under the job scratch.
+    #[serde(default)]
+    pub receipt_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -168,6 +338,13 @@ pub struct MeetingProjection {
     pub meeting_id: String,
     pub title: Option<String>,
     pub transcript: Vec<TranscriptSegment>,
+    /// The latest in-flight partial segment, if transcription is mid-utterance.
+    /// Cleared when its final segment lands.
+    #[serde(default)]
+    pub partial: Option<TranscriptSegment>,
+    /// Honest capture state for the meeting (status, lanes, failure).
+    #[serde(default)]
+    pub source: SourceState,
     pub proposals: Vec<Proposal>,
     pub jobs: Vec<AgentJobSpec>,
     pub artifacts: Vec<Artifact>,
@@ -188,6 +365,28 @@ pub fn now_rfc3339ish() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("{}.{:03}Z", now.as_secs(), now.subsec_millis())
+}
+
+/// Canonical event-type strings. Every producer (daemon, capture source, worker
+/// runner) and the projection use these so the taxonomy can't drift by typo.
+pub mod event_types {
+    pub const MEETING_STARTED: &str = "meeting.started";
+    pub const SOURCE_STARTED: &str = "transcript.source.started";
+    pub const SOURCE_FAILED: &str = "transcript.source.failed";
+    pub const SOURCE_STOPPED: &str = "transcript.source.stopped";
+    pub const AUDIO_LEVEL: &str = "audio.source.level";
+    pub const SEGMENT_PARTIAL: &str = "transcript.segment.partial";
+    pub const SEGMENT_FINAL: &str = "transcript.segment.final";
+    pub const PROPOSAL_CREATED: &str = "proposal.created";
+    pub const PROPOSAL_APPROVED: &str = "proposal.approved";
+    pub const PROPOSAL_IGNORED: &str = "proposal.ignored";
+    pub const JOB_REQUESTED: &str = "agent_job.requested";
+    pub const JOB_STARTED: &str = "agent_job.started";
+    pub const JOB_PROGRESS: &str = "agent_job.progress";
+    pub const JOB_COMPLETED: &str = "agent_job.completed";
+    pub const JOB_FAILED: &str = "agent_job.failed";
+    pub const JOB_CANCELED: &str = "agent_job.canceled";
+    pub const ARTIFACT_CREATED: &str = "artifact.created";
 }
 
 pub fn demo_segments(meeting_id: &str) -> Vec<TranscriptSegment> {

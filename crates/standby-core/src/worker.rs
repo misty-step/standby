@@ -59,6 +59,11 @@ impl MockResearchWorker {
                 ],
             },
             status: JobStatus::Queued,
+            profile: None,
+            progress_note: None,
+            failure_reason: None,
+            error: None,
+            receipt_path: None,
         };
 
         store.append(

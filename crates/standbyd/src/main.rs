@@ -5,13 +5,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use std::net::SocketAddr;
-use std::path::{Path as FsPath, PathBuf};
-use std::sync::{Arc, Mutex};
-use tacet_core::{
+use standby_core::{
     EventStore, MeetingProjection, MockResearchWorker, ProposalEngine, ProposalStatus,
     demo_meeting_segments,
 };
+use std::net::SocketAddr;
+use std::path::{Path as FsPath, PathBuf};
+use std::sync::{Arc, Mutex};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -40,13 +40,13 @@ async fn main() -> Result<()> {
     };
 
     let app = api_router(state).fallback_service(ServeDir::new(ui_dist_path()));
-    let addr: SocketAddr = std::env::var("TACET_ADDR")
+    let addr: SocketAddr = std::env::var("STANDBY_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:4317".to_string())
         .parse()
-        .context("parse TACET_ADDR")?;
+        .context("parse STANDBY_ADDR")?;
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("tacetd listening on http://{addr}");
+    info!("standbyd listening on http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -67,7 +67,7 @@ fn api_router(state: AppState) -> Router {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
-        "service": "tacetd"
+        "service": "standbyd"
     }))
 }
 
@@ -171,11 +171,11 @@ async fn ignore(
 }
 
 fn open_store() -> Result<EventStore> {
-    let path = std::env::var("TACET_DB")
+    let path = std::env::var("STANDBY_DB")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(".tacet/tacet.db"));
+        .unwrap_or_else(|_| PathBuf::from(".standby/standby.db"));
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).context("create tacet data dir")?;
+        std::fs::create_dir_all(parent).context("create standby data dir")?;
     }
     EventStore::open(path)
 }

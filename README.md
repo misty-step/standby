@@ -1,6 +1,6 @@
-# Tacet
+# Standby
 
-Tacet is a local-first meeting command surface: a quiet panel that listens to a
+Standby is a local-first meeting command surface: a quiet panel that listens to a
 meeting transcript, drafts proposal cards, and routes approved work to worker
 agents while keeping a durable event ledger.
 
@@ -23,7 +23,7 @@ cards become worker jobs through deterministic API endpoints.
 
 ```sh
 ./scripts/verify.sh
-cargo run -p tacetd
+cargo run -p standbyd
 ```
 
 Then open `http://127.0.0.1:4317`.

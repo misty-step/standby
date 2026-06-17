@@ -91,7 +91,7 @@ impl MockResearchWorker {
             job_id: job.id.clone(),
             title: "Realtime meeting-agent prior art".to_string(),
             summary: "Mock research complete: compare meeting bots, platform-native media APIs, and local capture. The first product wedge should prove proposal quality and approval telemetry before adding mutation-capable workers.".to_string(),
-            uri: Some(format!("tacet://artifacts/{}", job.id)),
+            uri: Some(format!("standby://artifacts/{}", job.id)),
         };
         store.append(
             &job.meeting_id,

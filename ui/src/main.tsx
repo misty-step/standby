@@ -192,7 +192,7 @@ function Sidebar() {
           <span className="dot green" />
         </div>
         <div className="brand-mark">T</div>
-        <strong>Tacet</strong>
+        <strong>Standby</strong>
       </div>
       <nav className="nav-list" aria-label="Primary">
         {navItems.map(([Icon, label, state]) => (
@@ -434,7 +434,7 @@ function CommandStrip() {
   return (
     <footer className="command-strip">
       <button className="kbd">⌘K</button>
-      <input placeholder="Ask Tacet or run a command..." />
+      <input placeholder="Ask Standby or run a command..." />
       <button className="icon-button" aria-label="Add context">+</button>
       <button>Agent <ChevronDown size={14} /></button>
       <button className="send" aria-label="Send command"><ArrowUp size={18} /></button>

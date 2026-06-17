@@ -1,7 +1,7 @@
 /target/
 /ui/node_modules/
 /ui/dist/
-/.tacet/
+/.standby/
 /tmp/
 *.log
 .DS_Store

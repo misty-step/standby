@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "crates/tacet-core",
-    "crates/tacetd",
+    "crates/standby-core",
+    "crates/standbyd",
 ]
 resolver = "3"
 

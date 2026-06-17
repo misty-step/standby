@@ -1,8 +1,8 @@
-# Tacet Repo Contract
+# Standby Repo Contract
 
 ## Goal
 
-Tacet is a local-first meeting command surface. The live meeting listener
+Standby is a local-first meeting command surface. The live meeting listener
 proposes low-noise cards only; deterministic approval endpoints spawn worker
 jobs and record every step in an append-only event log.
 

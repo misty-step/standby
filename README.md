@@ -1,39 +1,78 @@
 # Standby
 
-Standby is a local-first meeting command surface: a quiet panel that listens to a
-meeting transcript, drafts proposal cards, and routes approved work to worker
-agents while keeping a durable event ledger.
+Standby is a local-first meeting command surface: a quiet panel that listens to
+the call playing on your Mac, drafts evidence-cited proposal cards, and routes
+approved work to a sandboxed local worker agent — keeping a durable, append-only
+event ledger of every step.
 
-The realtime agent is intentionally narrow. It can create proposal cards and
-private meeting state. It cannot mutate external systems. Approved proposal
-cards become worker jobs through deterministic API endpoints.
+The realtime path is intentionally narrow. It can create proposal cards and
+private meeting state from transcript evidence. It cannot mutate external
+systems. Approved cards become worker jobs only through a deterministic,
+server-owned approval endpoint.
 
-## MVP
+## How it works
 
-- Rust daemon with an append-only SQLite `meeting_events` log.
-- Deterministic demo transcript source.
-- Proposal engine that emits one research proposal from concrete transcript
-  evidence.
-- Deterministic approval endpoint that starts a mock research worker.
-- Normalized worker events for queued, started, progress, artifact, completed,
-  ignored, and failed states.
-- React card surface inspired by the Misty Step/Aesthetic operational UI.
+- **Local capture (default).** A tiny native helper (`native/standby-capture-helper`,
+  Swift) captures microphone (AVAudioEngine) and system/app audio
+  (ScreenCaptureKit) and transcribes on-device with the macOS 26 Apple Speech
+  `SpeechAnalyzer`. It emits only JSONL — no SQLite, no workers, no credentials.
+  Teams is the first dogfood app, but any call routed through the Mac is captured
+  the same way. Provider adapters (Vexa/Recall/Graph) can be added later behind
+  the same `TranscriptSource` seam.
+- **Rust owns durable behavior.** `standby-core` normalizes capture events,
+  projects honest source/transcript/job state, detects evidence-cited proposals,
+  and runs workers. `standbyd` (axum) owns routes, the SQLite ledger, capture
+  supervision, and an out-of-request worker queue.
+- **Sandboxed worker.** Approval writes `proposal.approved` + a queued
+  `agent_job.requested` and returns immediately. A background worker runs the job
+  inside a macOS `sandbox-exec` jail whose only writable target is the per-job
+  scratch dir; the default profile denies network. Failures surface as
+  `agent_job.failed` with a reason and an on-disk receipt.
 
 ## Run
 
 ```sh
-./scripts/verify.sh
-cargo run -p standbyd
+./scripts/verify.sh                 # gate: tests, helper build, transcriber proof, UI build, worker smoke
+./scripts/build-capture-helper.sh   # build the native capture helper
+cargo run -p standbyd               # then open http://127.0.0.1:4317
 ```
 
-Then open `http://127.0.0.1:4317`.
+The normal route does not auto-start anything. Click **Start capture** to listen
+to the live call; macOS will ask for Microphone and Screen-Recording permission.
+Append `?mode=demo&meeting=demo` for the seeded demo meeting.
 
-The app seeds a demo meeting from the UI. Approving the proposal creates a
-research job and result artifact in the local event log.
+## Permissions
 
-## Boundaries
+Live system audio needs **Screen & System Audio Recording** permission for the
+running process; the microphone lane needs **Microphone** permission. Without the
+screen-recording grant, capture fails honestly (a visible card naming the exact
+permission), never a hang. See `docs/evidence/real-meeting/EVIDENCE.md`.
 
-The current worker is a local mock that proves orchestration and telemetry
-without external keys. Capture adapters for Vexa, Recall.ai, Zoom RTMS, Google
-Meet Media API, and local macOS audio belong behind the transcript-source
-interface after this loop is stable.
+## Workers
+
+The default and only sandbox-accepted worker is `local-research` (a real
+subprocess, no network/model — proves the runner + sandbox). Cloud-model
+profiles (`claude-research`, `pi-research`) are opt-in only via
+`STANDBY_ALLOW_NETWORK_WORKER=1`: a network-allowed worker can read local files,
+so egress would need scoping that this slice does not yet provide. Mutation-capable
+workers remain disabled pending executable permission enforcement.
+
+## Verification
+
+| Script | Proves |
+| --- | --- |
+| `scripts/verify.sh` | Rust tests, helper build, transcription, UI build, out-of-request worker |
+| `scripts/verify-real-transcriber-smoke.sh` | unstubbed on-device transcription (deterministic) |
+| `scripts/verify-local-transcript-fixture.sh` | transcript ordering, dedupe, evidence-cited proposals |
+| `scripts/verify-local-capture-smoke.sh` | real mic frames; system-audio transcript when permitted |
+| `scripts/verify-worker-runner.sh` | out-of-request job → sandboxed worker → real artifact |
+| `scripts/verify-worker-sandbox.sh` | malicious worker cannot mutate repo, escape scratch, or exfiltrate |
+| `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
+| `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |
+
+## Red lines
+
+Transcript text is untrusted evidence: it may quote into proposal cards, never
+execute. No realtime path mutates repos, sends messages, deploys, or spends
+money. Approval is a deterministic server action. Every proposal, approval, job
+transition, artifact, and failure is an event.

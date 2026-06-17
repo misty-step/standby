@@ -49,6 +49,15 @@ func logErr(_ message: String) {
     FileHandle.standardError.write(("standby-capture-helper: " + message + "\n").data(using: .utf8)!)
 }
 
+/// Fire `body` after `seconds` on a background thread, independent of the main
+/// async executor. Used as a hard watchdog: ScreenCaptureKit acquisition can
+/// hang with no throw/prompt when the host process lacks Screen-Recording TCC,
+/// and a structured-concurrency timeout cannot interrupt that non-cancellable
+/// await — but `exit()` from this thread terminates the stuck process.
+func armWatchdog(_ seconds: Double, _ body: @escaping () -> Void) {
+    DispatchQueue.global().asyncAfter(deadline: .now() + seconds, execute: body)
+}
+
 func failAndExit(reason: String, lane: String?, detail: String?) -> Never {
     var event: [String: Any] = ["type": "source.failed", "reason": reason]
     if let lane { event["lane"] = lane }
@@ -224,7 +233,8 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 
     func start() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: false)
         guard let display = content.displays.first else {
             throw NSError(domain: "standby", code: 1, userInfo: [NSLocalizedDescriptionKey: "no display"])
         }
@@ -367,6 +377,10 @@ func runCapture(mode: String, seconds: Double?) async {
 
     // System audio lane
     if wantsSystem {
+        // No synchronous permission preflight: CGPreflightScreenCaptureAccess
+        // checks this binary's own TCC entry, but ScreenCaptureKit succeeds via
+        // the responsible (parent) process's grant, so a preflight gives false
+        // negatives. The watchdog below turns a genuine hang into an honest fail.
         do { try await systemPipeline?.start() } catch {
             failAndExit(reason: "unknown", lane: "system_audio", detail: "system transcriber: \(error)")
         }
@@ -376,10 +390,23 @@ func runCapture(mode: String, seconds: Double?) async {
             meter.observe(rms: r, peak: p, frames: Int(buffer.frameLength))
             Task { await systemPipeline?.feed(buffer) }
         }
+        // Hard watchdog: SCStream acquisition can hang (no throw) when the host
+        // process lacks Screen-Recording TCC — common when a daemon spawns the
+        // helper. Fail honestly instead of stalling the meeting UI forever.
+        nonisolated(unsafe) var systemStarted = false
+        armWatchdog(8) {
+            if !systemStarted {
+                failAndExit(
+                    reason: "screen_recording_permission_denied", lane: "system_audio",
+                    detail: "system audio did not start in 8s (host process may lack Screen-Recording permission)")
+            }
+        }
         do {
             try await capture.start()
+            systemStarted = true
             systemCapture = capture
         } catch {
+            systemStarted = true
             failAndExit(
                 reason: "screen_recording_permission_denied", lane: "system_audio", detail: "\(error)")
         }

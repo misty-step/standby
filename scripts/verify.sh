@@ -3,7 +3,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Rust unit + integration tests (includes the transcript-fixture replay and the
+# worker-sandbox containment negative test).
 cargo test --workspace
+
+# The native capture helper compiles, and transcription is real and unstubbed:
+# a deterministic on-device Apple Speech proof. (Live mic/system capture and the
+# browser UI-state checks are separate, permission/operator-gated smokes.)
+./scripts/build-capture-helper.sh
+./scripts/verify-real-transcriber-smoke.sh
+
 npm --prefix ui run build
 cargo build -p standbyd
 

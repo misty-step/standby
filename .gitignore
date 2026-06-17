@@ -4,5 +4,7 @@
 /.standby/
 /tmp/
 /native/standby-capture-helper/build/
+/docs/evidence/real-meeting/*.jsonl
+/docs/evidence/real-meeting/*.tmp
 *.log
 .DS_Store

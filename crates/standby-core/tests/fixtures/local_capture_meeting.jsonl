@@ -1,0 +1,13 @@
+{"type":"source.started","mode":"mic+system","mic":true,"system":true}
+{"type":"audio.level","lane":"microphone","rms":0.012,"peak":0.08,"captured_ms":1000}
+{"type":"audio.level","lane":"system_audio","rms":0.09,"peak":0.61,"captured_ms":1000}
+{"type":"segment.partial","lane":"system_audio","speaker":"system_audio","text":"before we commit"}
+{"type":"segment.partial","lane":"system_audio","speaker":"system_audio","text":"before we commit to building this"}
+{"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"Before we commit to building this, can someone check what already exists in the market?"}
+{"type":"audio.level","lane":"microphone","rms":0.07,"peak":0.42,"captured_ms":2000}
+{"type":"audio.level","lane":"system_audio","rms":0.01,"peak":0.05,"captured_ms":2000}
+{"type":"segment.partial","lane":"microphone","speaker":"me","text":"good point lets do"}
+{"type":"segment.final","lane":"microphone","speaker":"me","text":"Good point. Let's do a quick research sweep on prior art for local-first meeting tools."}
+{"type":"audio.level","lane":"system_audio","rms":0.08,"peak":0.55,"captured_ms":3000}
+{"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"Scope it to the last eighteen months and include open source and YC companies."}
+{"type":"source.stopped"}

@@ -74,6 +74,17 @@ impl CaptureMode {
             CaptureMode::MicAndSystem => (true, true),
         }
     }
+
+    /// Parse a helper-style mode string such as `mic`, `system`, or `mic+system`.
+    pub fn parse(mode: &str) -> CaptureMode {
+        let mic = mode.contains("mic");
+        let system = mode.contains("system");
+        match (mic, system) {
+            (true, false) => CaptureMode::Mic,
+            (false, true) => CaptureMode::System,
+            _ => CaptureMode::MicAndSystem,
+        }
+    }
 }
 
 /// A single capture lane. Local capture only distinguishes `me` (microphone)

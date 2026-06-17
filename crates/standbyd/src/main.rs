@@ -1,5 +1,7 @@
+mod capture;
+
 use anyhow::{Context, Result};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -9,6 +11,7 @@ use standby_core::{
     EventStore, MeetingProjection, MockResearchWorker, ProposalEngine, ProposalStatus,
     demo_meeting_segments,
 };
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -19,8 +22,10 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
-struct AppState {
-    store: Arc<Mutex<EventStore>>,
+pub(crate) struct AppState {
+    pub(crate) store: Arc<Mutex<EventStore>>,
+    /// Meeting id -> running capture helper pid, for stop signalling.
+    pub(crate) captures: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +42,7 @@ async fn main() -> Result<()> {
 
     let state = AppState {
         store: Arc::new(Mutex::new(open_store()?)),
+        captures: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let app = api_router(state).fallback_service(ServeDir::new(ui_dist_path()));
@@ -55,6 +61,8 @@ fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/meetings/{meeting_id}/demo", post(start_demo))
+        .route("/api/meetings/{meeting_id}/capture/start", post(capture_start))
+        .route("/api/meetings/{meeting_id}/capture/stop", post(capture_stop))
         .route("/api/meetings/{meeting_id}", get(meeting_projection))
         .route("/api/meetings/{meeting_id}/events", get(meeting_projection))
         .route("/api/proposals/{proposal_id}/approve", post(approve))
@@ -115,6 +123,37 @@ async fn meeting_projection(
     State(state): State<AppState>,
     Path(meeting_id): Path<String>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    Ok(Json(store.projection(&meeting_id)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct CaptureParams {
+    mode: Option<String>,
+}
+
+async fn capture_start(
+    State(state): State<AppState>,
+    Path(meeting_id): Path<String>,
+    Query(params): Query<CaptureParams>,
+) -> ApiResult<Json<MeetingProjection>> {
+    let mode = params.mode.unwrap_or_else(|| "mic+system".to_string());
+    capture::start_capture(state.clone(), meeting_id.clone(), mode).await?;
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    Ok(Json(store.projection(&meeting_id)?))
+}
+
+async fn capture_stop(
+    State(state): State<AppState>,
+    Path(meeting_id): Path<String>,
+) -> ApiResult<Json<MeetingProjection>> {
+    capture::stop_capture(&state, &meeting_id)?;
     let store = state
         .store
         .lock()

@@ -8,9 +8,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
-    AgentJobSpec, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource, MeetingProjection,
-    ProposalEngine, ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root,
-    demo_meeting_segments, emit_job_failed, event_types, run_job,
+    AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource,
+    Meeting, MeetingProjection, ProposalEngine, ProposalStatus, WorkerProfile, approve_proposal,
+    default_scratch_root, demo_meeting_segments, emit_job_failed, event_types, run_job,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -198,6 +198,31 @@ async fn seed_capture(
         .lock()
         .map_err(|_| ApiError::internal("lock store"))?;
     for line in &request.events {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // meeting.started isn't a helper event; emit it directly so tests can
+        // drive the waiting-for-permission state.
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if value.get("type").and_then(|t| t.as_str()) == Some("meeting.started") {
+                store.append(
+                    &meeting_id,
+                    event_types::MEETING_STARTED,
+                    Some(&meeting_id),
+                    None,
+                    &Meeting {
+                        id: meeting_id.clone(),
+                        title: value.get("title").and_then(|t| t.as_str()).map(String::from),
+                        mode: value
+                            .get("mode")
+                            .and_then(|m| m.as_str())
+                            .map(CaptureMode::parse),
+                    },
+                )?;
+                continue;
+            }
+        }
         if let Some(event) = HelperEvent::parse_line(line) {
             LocalMacAudioSource::ingest(&store, &meeting_id, event)?;
         }

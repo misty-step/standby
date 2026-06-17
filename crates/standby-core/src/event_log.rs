@@ -276,6 +276,10 @@ fn derive_source_status(source: &mut SourceState, transcript: &[TranscriptSegmen
             .any(|segment| segment.source == TranscriptSourceKind::Demo)
         {
             source.status = SourceStatus::Demo;
+        } else if source.mode.is_some() {
+            // meeting.started recorded, but the helper has not reported source.started
+            // yet — it is acquiring microphone / screen-recording permission.
+            source.status = SourceStatus::WaitingPermission;
         }
         return;
     }
@@ -488,6 +492,27 @@ mod tests {
         let projection = store.projection(meeting).unwrap();
         assert_eq!(projection.source.status, SourceStatus::Demo);
         assert!(!projection.source.started);
+    }
+
+    #[test]
+    fn projection_reports_waiting_permission_after_meeting_started() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_wait";
+        store
+            .append(
+                meeting,
+                event_types::MEETING_STARTED,
+                None,
+                None,
+                &crate::Meeting {
+                    id: meeting.to_string(),
+                    title: None,
+                    mode: Some(CaptureMode::MicAndSystem),
+                },
+            )
+            .unwrap();
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.status, SourceStatus::WaitingPermission);
     }
 
     #[test]

@@ -394,6 +394,11 @@ final class SystemAudioTap {
     }
 
     func start() throws {
+        // Self-heal: destroy any of OUR private aggregate devices left over from a
+        // previous run that didn't tear down (a kill -9 skips teardown). Leaked
+        // aggregates accumulate in the HAL and can hang new aggregate creation.
+        Self.destroyOrphanedAggregates()
+
         // Clean up any partially-created CoreAudio objects on ANY failure path so a
         // throw (e.g. aggregate creation fails after the tap exists) never leaks a
         // process tap or aggregate device.
@@ -539,6 +544,44 @@ final class SystemAudioTap {
             throw TapError.setupFailed(status, "kAudioTapPropertyFormat")
         }
         return format
+    }
+
+    /// Destroy any private aggregate devices we created in a previous run (matched
+    /// by our UID prefix) that were leaked by an abnormal exit. Best-effort and
+    /// scoped to our own devices — never touches another app's aggregate.
+    private static func destroyOrphanedAggregates() {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var dataSize: UInt32 = 0
+        guard
+            AudioObjectGetPropertyDataSize(
+                AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize) == noErr,
+            dataSize > 0
+        else { return }
+        let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+        var devices = [AudioObjectID](repeating: AudioObjectID(kAudioObjectUnknown), count: count)
+        guard
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &devices)
+                == noErr
+        else { return }
+        for device in devices where device != kAudioObjectUnknown {
+            var uidAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            var uid: CFString = "" as CFString
+            var uidSize = UInt32(MemoryLayout<CFString>.size)
+            let status = withUnsafeMutablePointer(to: &uid) {
+                AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &uidSize, $0)
+            }
+            if status == noErr, (uid as String).hasPrefix("com.standby.capture.aggregate") {
+                AudioHardwareDestroyAggregateDevice(device)
+                logErr("cleaned up orphaned aggregate \(uid as String)")
+            }
+        }
     }
 }
 

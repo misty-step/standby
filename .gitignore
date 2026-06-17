@@ -8,3 +8,4 @@
 /docs/evidence/real-meeting/*.tmp
 *.log
 .DS_Store
+/native/StandbyCapture.app/

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan — Deadlock-Free, Output-Independent Capture Helper</title>
+<style>
+  :root{--ink:#16181d;--muted:#5d6470;--line:#e2e5ea;--bg:#f7f8fa;--card:#fff;
+    --accent:#1f67f2;--ok:#10935c;--warn:#b45309;--err:#dc2626;--soft:#eef2f8;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,Inter,Segoe UI,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 80px;}
+  h1{font-size:26px;margin:0 0 4px} h2{font-size:18px;margin:34px 0 12px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  h3{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 8px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:760px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;background:var(--soft);color:var(--accent);font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--soft);font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  tr:last-child td{border-bottom:0}
+  code{background:#f0f2f6;padding:1px 5px;border-radius:5px;font-size:12.5px}
+  .choose{color:var(--ok);font-weight:700}.reject{color:var(--err)}
+  .lane{border-left:3px solid var(--accent);padding:4px 0 4px 14px;margin:10px 0}
+  .lane.b{border-color:#7c3aed}.lane.c{border-color:var(--ok)}
+  .callout{background:#fff7ed;border:1px solid #f4caa0;border-radius:10px;padding:12px 14px;color:#7a4a12;font-size:13.5px}
+  ul{margin:6px 0 0;padding-left:18px}li{margin:3px 0}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  a{color:var(--accent-ink,#0b4fce)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="pill">CONTEXT PACKET · docs/context-packets/capture-helper-rewrite.md</span>
+  <h1>Deadlock-Free, Output-Independent Capture Helper</h1>
+  <p class="sub">Two architectural bugs found in live dogfood that the milestone smokes missed. Reproduced and root-caused before shaping.</p>
+
+  <div class="hero">
+    <h3>The work contract</h3>
+    <div class="grid g2">
+      <div>
+        <p><strong>Outcome:</strong> Standby captures mic + all participants for a full real meeting on <em>any</em> output device, never deadlocks, stops cleanly on SIGTERM, and names the exact missing macOS permission.</p>
+        <p><strong>Chosen design — two pillars:</strong></p>
+        <div class="lane"><strong>1 · Concurrency rewrite</strong> — <code>@main async</code> (delete <code>dispatchMain()</code>), bounded <code>AsyncStream</code> handoff from realtime threads, one non-blocking stdout writer, structured <code>TaskGroup</code> shutdown.</div>
+        <div class="lane b"><strong>2 · Core Audio Process Taps</strong> — <code>AudioHardwareCreateProcessTap</code> + aggregate device for output-independent system audio; <code>kTCCServiceAudioCapture</code> tier; signed <code>.app</code>.</div>
+        <div class="lane c"><strong>3 · Proof</strong> — a ≥60s daemon-driven capture smoke that reproduces the deadlock, kept red until fixed.</div>
+      </div>
+      <div>
+        <h3>Why it wins</h3>
+        <ul>
+          <li>Kills the root cause (GCD vs Swift-executor fight), not the symptom.</li>
+          <li>Output-device-independent: solves HDMI/Bluetooth where ScreenCaptureKit yields zero frames.</li>
+          <li>Realtime audio threads never lock or do I/O — no second freeze path.</li>
+        </ul>
+        <h3>Stop conditions</h3>
+        <ul>
+          <li>Long-run smoke still plateaus after the rewrite → deadlock model wrong; re-investigate before the tap.</li>
+          <li>Can't get <code>kTCCServiceAudioCapture</code> → ship concurrency fix + ScreenCaptureKit (built-in), gate the tap.</li>
+          <li>A framework genuinely needs a main CFRunLoop → document + choose run-loop-safe structure, never reintroduce <code>dispatchMain()</code> with main-actor deps.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <h2>Current state — the reproduced failure</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Deadlock</h3>
+      <p class="mono">t=1..22s mic_level_events=0 · SIGTERM → STILL ALIVE (kill -9 only)</p>
+      <p>Reproduces in mic-only, via daemon/pipe/file. SIGTERM-immune = the main GCD queue is wedged. <code>--seconds</code> smokes raced the wedge and won — the gap.</p>
+    </div>
+    <div class="card">
+      <h3>No system audio on HDMI</h3>
+      <p>Default output = HDMI; ScreenCaptureKit <code>capturesAudio</code> delivered <strong>0 frames</strong> even with audio playing. Mic worked (then froze at the deadlock).</p>
+    </div>
+  </div>
+
+  <h2>Root cause</h2>
+  <div class="card">
+    <p><code>dispatchMain()</code> parks the one main thread on the GCD queue and never pumps Swift's main-actor executor → AVFoundation/Speech continuations that hop to main never resume. The audio render thread mints an unbounded <code>Task { await pipeline.feed }</code> per callback → cooperative-pool flood. Secondary: <code>LevelMeter.observe</code> does <code>queue.sync { emit() }</code> with a blocking <code>FileHandle.write</code> <strong>on the realtime audio thread</strong>.</p>
+  </div>
+
+  <h2>Alternatives (losers killed on the record)</h2>
+  <table>
+    <tr><th>Area</th><th>Option</th><th>Verdict</th></tr>
+    <tr><td>Deadlock</td><td><code>@main async</code> + streams + single writer + TaskGroup</td><td class="choose">Choose</td></tr>
+    <tr><td>Deadlock</td><td>Async <code>emit()</code> only, keep <code>dispatchMain()</code></td><td class="reject">Reject — main-actor starvation remains</td></tr>
+    <tr><td>System audio</td><td>Core Audio Process Taps + aggregate device</td><td class="choose">Choose (primary lane)</td></tr>
+    <tr><td>System audio</td><td>Keep SCStream, tell user to switch off HDMI</td><td class="reject">Reject as primary — keep as fallback only</td></tr>
+    <tr><td>System audio</td><td>Virtual loopback (BlackHole/Loopback)</td><td class="reject">Reject — admin install, fragile</td></tr>
+  </table>
+
+  <h2>Oracle &amp; verification</h2>
+  <table>
+    <tr><th>Script</th><th>Proves</th></tr>
+    <tr><td class="mono">verify-capture-longrun.sh</td><td>≥60s daemon capture: level_events keep growing (no plateau), SIGTERM stops &lt;3s (no kill -9), source.stopped lands. <strong>The gap-closer.</strong></td></tr>
+    <tr><td class="mono">verify-system-audio-tap.sh</td><td>Played phrase captured + transcribed via the tap with output = HDMI (nonzero frames).</td></tr>
+    <tr><td class="mono">verify.sh + existing smokes</td><td>Stay green; verify-ui-states adds mic-denied vs system-audio-denied distinction.</td></tr>
+  </table>
+
+  <h2>Risks &amp; review outcome</h2>
+  <div class="callout">
+    <strong>Fresh-context critique done — concurrency core verified sound</strong> (Core Audio IOProcs + HAL listeners take dispatch queues; no CFRunLoop survives <code>@main async</code>). 9 amendments folded into the packet. The 3 that were production-embarrassing:
+    <ul>
+      <li><strong>60s gate ≠ 10-min claim</strong> — aggregate-device clock drift hits at 20–40 min → added <code>verify-capture-meeting-duration.sh</code> (≥10 min) as the ship gate + drift correction on every sub-tap.</li>
+      <li><strong>Ad-hoc signing evaporates the TCC grant on rebuild</strong> → require a stable signing identity + a <code>verify.sh</code> preflight that rejects ad-hoc.</li>
+      <li><strong>No public pre-check for <code>kTCCServiceAudioCapture</code></strong> → detect permission by attempt-and-classify, not a pre-emptive read.</li>
+    </ul>
+    Plus: <code>muteBehavior</code> must keep the call audible; transcriber-bound audio drops must be counted/emitted (never silent); per-PID tap to limit mic bleed; explicit <code>AVAudioConverter</code> for tap format.
+  </div>
+
+  <p class="sub" style="margin-top:26px">Premise: <span class="mono">sha256:dc8ed4c9…210ef docs/research/capture-helper-deadlock-and-system-audio.md</span> · Deliverable: working code + verification harness · Consumed by <code>/deliver</code>.</p>
+</div>
+</body>
+</html>

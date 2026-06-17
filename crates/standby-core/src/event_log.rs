@@ -1,7 +1,8 @@
 use crate::{
-    AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioLane, AudioLevel, Meeting, MeetingEvent,
-    MeetingProjection, Proposal, SourceFailed, SourceFailure, SourceStarted, SourceState,
-    SourceStatus, TranscriptSegment, TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
+    AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
+    MeetingEvent, MeetingProjection, Proposal, SourceFailed, SourceFailure, SourceStarted,
+    SourceState, SourceStatus, TranscriptSegment, TranscriptSourceKind, event_types, new_id,
+    now_rfc3339ish,
 };
 use anyhow::{Context, Result};
 use rusqlite::types::Type;
@@ -144,6 +145,15 @@ impl EventStore {
                     if level.rms >= AUDIO_ACTIVE_RMS {
                         lane.active = true;
                     }
+                }
+                event_types::AUDIO_DROPPED => {
+                    let dropped: AudioDropped = decode(&event.payload_json)?;
+                    let lane = match dropped.lane {
+                        AudioLane::Microphone => &mut source.microphone,
+                        AudioLane::SystemAudio => &mut source.system_audio,
+                    };
+                    // Helper emits a cumulative count; max is robust to ordering.
+                    lane.dropped = lane.dropped.max(dropped.count);
                 }
                 event_types::SEGMENT_PARTIAL => {
                     let segment: TranscriptSegment = decode(&event.payload_json)?;
@@ -436,6 +446,44 @@ mod tests {
         assert!(projection.source.microphone.active);
         assert!(!projection.source.system_audio.active);
         assert!(projection.source.system_audio.expected);
+    }
+
+    #[test]
+    fn projection_tracks_dropped_buffers_per_lane() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_drop";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::MicAndSystem,
+                },
+            )
+            .unwrap();
+        // Cumulative counts; a later, lower count must never lower the projection.
+        for count in [2u32, 5, 3] {
+            store
+                .append(
+                    meeting,
+                    event_types::AUDIO_DROPPED,
+                    None,
+                    None,
+                    &crate::AudioDropped {
+                        meeting_id: meeting.to_string(),
+                        lane: AudioLane::SystemAudio,
+                        count,
+                    },
+                )
+                .unwrap();
+        }
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.system_audio.dropped, 5);
+        assert_eq!(projection.source.microphone.dropped, 0);
     }
 
     #[test]

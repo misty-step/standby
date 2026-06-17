@@ -124,6 +124,10 @@ const FAILURE_TEXT: Record<string, string> = {
     "Microphone permission denied. Grant it in System Settings › Privacy & Security › Microphone, then start again.",
   screen_recording_permission_denied:
     "Screen & System Audio Recording permission denied. Grant it in System Settings › Privacy & Security › Screen Recording, then start again.",
+  system_audio_permission_denied:
+    "System Audio Recording permission denied. Grant it in System Settings › Privacy & Security › System Audio Recording (a separate pane from Screen Recording), then start again.",
+  system_audio_unsupported_os:
+    "System audio capture needs macOS 14.4 or later. On older macOS, capture microphone only or use the Screen Recording fallback.",
   no_input_device: "No audio input device was found.",
   helper_crashed: "The capture helper stopped unexpectedly.",
   unsupported: "This capture mode is not supported.",

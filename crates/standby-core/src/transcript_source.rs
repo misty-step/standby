@@ -5,7 +5,7 @@
 //! own wire formats, so the proposal/UI/job layers never see provider details.
 
 use crate::{
-    AudioLane, AudioLevel, CaptureMode, EventStore, ProposalEngine, SourceFailed,
+    AudioDropped, AudioLane, AudioLevel, CaptureMode, EventStore, ProposalEngine, SourceFailed,
     SourceFailureReason, SourceStarted, SourceStopped, TranscriptSegment, TranscriptSourceKind,
     event_types, new_id,
 };
@@ -34,6 +34,12 @@ pub enum HelperEvent {
         peak: Option<f32>,
         #[serde(default)]
         captured_ms: u64,
+    },
+    #[serde(rename = "audio.dropped")]
+    AudioDropped {
+        lane: String,
+        #[serde(default)]
+        count: u32,
     },
     #[serde(rename = "segment.partial")]
     SegmentPartial {
@@ -105,6 +111,8 @@ fn failure_reason_from_str(reason: &str) -> SourceFailureReason {
         "screen_recording_permission_denied" => {
             SourceFailureReason::ScreenRecordingPermissionDenied
         }
+        "system_audio_permission_denied" => SourceFailureReason::SystemAudioPermissionDenied,
+        "system_audio_unsupported_os" => SourceFailureReason::SystemAudioUnsupportedOs,
         "no_input_device" => SourceFailureReason::NoInputDevice,
         "helper_crashed" => SourceFailureReason::HelperCrashed,
         "unsupported" => SourceFailureReason::Unsupported,
@@ -168,6 +176,22 @@ impl LocalMacAudioSource {
                             rms,
                             peak,
                             captured_ms,
+                        },
+                    )?;
+                }
+                Ok(None)
+            }
+            HelperEvent::AudioDropped { lane, count } => {
+                if let Some(lane) = lane_from_str(&lane) {
+                    store.append(
+                        meeting_id,
+                        event_types::AUDIO_DROPPED,
+                        Some(meeting_id),
+                        None,
+                        &AudioDropped {
+                            meeting_id: meeting_id.to_string(),
+                            lane,
+                            count,
                         },
                     )?;
                 }
@@ -346,6 +370,42 @@ mod tests {
         // Replaying the same projection is stable.
         let again = store.projection(meeting).unwrap();
         assert_eq!(again.transcript.len(), projection.transcript.len());
+    }
+
+    #[test]
+    fn normalizes_audio_dropped_into_lane_counter() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_dropnorm";
+        for line in [
+            r#"{"type":"source.started","mode":"mic+system","mic":true,"system":true}"#,
+            r#"{"type":"audio.dropped","lane":"system_audio","count":4}"#,
+        ] {
+            let event = HelperEvent::parse_line(line).expect("parse");
+            LocalMacAudioSource::ingest(&store, meeting, event).unwrap();
+        }
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.system_audio.dropped, 4);
+        assert_eq!(projection.source.microphone.dropped, 0);
+    }
+
+    #[test]
+    fn maps_system_audio_permission_tier_distinctly() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_sysperm";
+        for line in [
+            r#"{"type":"source.started","mode":"system","mic":false,"system":true}"#,
+            r#"{"type":"source.failed","reason":"system_audio_permission_denied","lane":"system_audio","detail":"nope"}"#,
+        ] {
+            let event = HelperEvent::parse_line(line).expect("parse");
+            LocalMacAudioSource::ingest(&store, meeting, event).unwrap();
+        }
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.source.status, SourceStatus::Failed);
+        // Distinct from the ScreenCaptureKit "Screen Recording" tier.
+        assert_eq!(
+            projection.source.failure.unwrap().reason,
+            SourceFailureReason::SystemAudioPermissionDenied
+        );
     }
 
     #[test]

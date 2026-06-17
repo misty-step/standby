@@ -6,6 +6,7 @@
 /native/standby-capture-helper/build/
 /docs/evidence/real-meeting/*.jsonl
 /docs/evidence/real-meeting/*.tmp
+/docs/evidence/real-meeting/longrun-samples.csv
 *.log
 .DS_Store
 /native/StandbyCapture.app/

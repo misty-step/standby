@@ -77,6 +77,31 @@ expect uitest-nomic no_mic_audio
 seed uitest-failed '{"type":"source.started","mode":"mic+system"}' '{"type":"source.failed","reason":"screen_recording_permission_denied","lane":"system_audio","detail":"denied"}'
 expect uitest-failed failed; shot uitest-failed failed
 
+echo "2b) the distinct permission tiers render as distinct reasons (mic / screen-rec / core-audio-tap)"
+reason() { curl -fsS "http://$ADDR/api/meetings/$1" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((p.source.failure||{}).reason||"")'; }
+expect_reason() { local got; got="$(reason "$1")"; if [ "$got" != "$2" ]; then echo "FAIL: $1 expected reason '$2' got '$got'"; exit 1; fi; echo "  $1 -> $got"; }
+
+# Microphone permission tier.
+seed uitest-failmic '{"type":"source.started","mode":"mic+system"}' '{"type":"source.failed","reason":"mic_permission_denied","lane":"microphone","detail":"denied"}'
+expect uitest-failmic failed; expect_reason uitest-failmic mic_permission_denied; shot uitest-failmic failed-mic
+# Core Audio process-tap tier ("System Audio Recording Only") — a SEPARATE Settings
+# pane from Screen Recording, classified from kAudioHardwareNotPermittedError.
+seed uitest-failtap '{"type":"source.started","mode":"mic+system"}' '{"type":"source.failed","reason":"system_audio_permission_denied","lane":"system_audio","detail":"kAudioHardwareNotPermittedError"}'
+expect uitest-failtap failed; expect_reason uitest-failtap system_audio_permission_denied; shot uitest-failtap failed-system-audio
+
+# All three tiers must be distinct reason strings, and the shipped UI bundle must
+# carry distinct operator text for each (so the cards can't collapse to one).
+node -e '
+  const reasons=["mic_permission_denied","screen_recording_permission_denied","system_audio_permission_denied"];
+  if(new Set(reasons).size!==3){console.error("FAIL: permission reasons not distinct");process.exit(1)}
+  const js=require("fs").readFileSync(require("path").join("ui","dist","assets",
+    require("fs").readdirSync(require("path").join("ui","dist","assets")).find(f=>f.endsWith(".js"))),"utf8");
+  for(const needle of ["Privacy & Security › Microphone","Privacy & Security › Screen Recording","Privacy & Security › System Audio Recording"]){
+    if(!js.includes(needle)){console.error("FAIL: shipped UI bundle missing card text:",needle);process.exit(1)}
+  }
+  console.log("  mic / screen-recording / system-audio tiers carry distinct Settings-pane text in the bundle");
+'
+
 seed uitest-stopped '{"type":"source.started","mode":"mic"}' '{"type":"source.stopped"}'
 expect uitest-stopped stopped
 

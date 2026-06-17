@@ -114,12 +114,21 @@ pub enum SourceStatus {
 }
 
 /// Why a capture source failed. Permission reasons are specific so the UI can
-/// tell the operator exactly which macOS permission to grant.
+/// tell the operator exactly which macOS permission to grant. System audio has
+/// TWO distinct permission tiers: `ScreenRecordingPermissionDenied` is the
+/// ScreenCaptureKit fallback's "Screen & System Audio Recording" grant;
+/// `SystemAudioPermissionDenied` is the Core Audio tap's separate "System Audio
+/// Recording Only" grant (`kTCCServiceAudioCapture`). They live in different
+/// Settings panes, so the UI must name the right one.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceFailureReason {
     MicPermissionDenied,
     ScreenRecordingPermissionDenied,
+    /// Core Audio process-tap tier ("System Audio Recording Only").
+    SystemAudioPermissionDenied,
+    /// Core Audio taps need macOS 14.4+; below that the tap lane is unavailable.
+    SystemAudioUnsupportedOs,
     NoInputDevice,
     HelperCrashed,
     Unsupported,
@@ -157,6 +166,9 @@ pub struct LaneState {
     pub last_rms: Option<f32>,
     pub captured_ms: u64,
     pub level_events: u32,
+    /// Cumulative transcriber-bound buffers dropped on overflow. Nonzero means
+    /// lost transcript — surfaced honestly, never silent.
+    pub dropped: u32,
 }
 
 /// The projected capture state for a meeting, derived from source/audio events.
@@ -215,6 +227,15 @@ pub struct AudioLevel {
     pub rms: f32,
     pub peak: Option<f32>,
     pub captured_ms: u64,
+}
+
+/// `audio.source.dropped` payload — cumulative count of transcriber-bound buffers
+/// dropped on overflow for a lane. Carries no audio content, only the counter.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AudioDropped {
+    pub meeting_id: String,
+    pub lane: AudioLane,
+    pub count: u32,
 }
 
 /// RMS at or above this counts a lane as carrying real audio.
@@ -391,6 +412,7 @@ pub mod event_types {
     pub const SOURCE_FAILED: &str = "transcript.source.failed";
     pub const SOURCE_STOPPED: &str = "transcript.source.stopped";
     pub const AUDIO_LEVEL: &str = "audio.source.level";
+    pub const AUDIO_DROPPED: &str = "audio.source.dropped";
     pub const SEGMENT_PARTIAL: &str = "transcript.segment.partial";
     pub const SEGMENT_FINAL: &str = "transcript.segment.final";
     pub const PROPOSAL_CREATED: &str = "proposal.created";

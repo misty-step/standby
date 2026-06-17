@@ -15,15 +15,31 @@ smuggled into the branch.
   through the approve/ignore routes and scope the query for defense in depth.
 
 ## Capture / platform
-- **Stable Screen-Recording TCC identity.** ScreenCaptureKit system audio needs a
-  persistent Screen-Recording grant for the host process; a freshly built/launched
-  daemon loses it. Bundle `standbyd` (or a capture host) as a signed `.app` so the
-  TCC grant sticks across launches, and add an in-app "grant permission" flow.
+
+Much of this section was delivered by the capture-helper rewrite —
+`docs/decisions/0001-core-audio-taps-and-dual-permission.md` (deadlock fix,
+output-independent Core Audio taps, dual-permission model, stable-signed helper).
+What remains:
+
+- **Bundle `standbyd` itself as a signed `.app` + in-app grant flow.** The capture
+  *helper* is now stably signed (its TCC grants persist across rebuilds), but the
+  daemon is still launched bare. A signed `standbyd` host + an in-app "grant
+  permission" button would complete the first-run UX. (Helper signing: DONE.)
+- **Mic-only-continue when system audio is permission-blocked.** Today a denied
+  System-Audio (or Screen-Recording) grant fails the whole capture via
+  `failAndExit`; the mic lane should be able to keep running and surface the system
+  lane as separately failed. Needs the projection to represent a per-lane failure
+  without marking the whole source `Failed`.
+- **Per-PID tap to limit mic-bleed.** The system lane uses a global output mixdown.
+  The operator's own voice does not normally reach local output, but a per-PID tap
+  on the meeting app (`kAudioHardwarePropertyTranslatePIDToProcessObject`) would be
+  strictly safer when monitoring is on. Global mixdown is the correct default.
+- **Survive a mid-meeting output-device change.** Static "any output device at
+  start" is handled; a HAL default-output listener that rebuilds the aggregate when
+  AirPods connect / HDMI hot-plugs is a follow-up.
 - **Per-lane partial transcripts.** The projection holds a single `partial`; the
   matching-speaker clear mitigates cross-lane clobber, but a `partial` keyed by
   lane/speaker would render both lanes' in-flight utterances faithfully.
-- **Mic-only fallback.** When system audio is permission-blocked, optionally
-  continue mic-only instead of failing the whole capture.
 
 ## Durability / scale
 - **Worker-queue recovery on restart.** The job queue is an in-memory mpsc; jobs

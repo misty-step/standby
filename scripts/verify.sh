@@ -11,6 +11,18 @@ cargo test --workspace
 # a deterministic on-device Apple Speech proof. (Live mic/system capture and the
 # browser UI-state checks are separate, permission/operator-gated smokes.)
 ./scripts/build-capture-helper.sh
+
+# TCC-persistence guard: the SHIPPED helper (.app) must carry a STABLE signature,
+# never ad-hoc. Ad-hoc cdhash changes every build, so macOS forgets the Microphone
+# and System-Audio grants on each rebuild — the dogfood trap. Fail loudly here.
+SHIPPED_APP="native/StandbyCapture.app"
+if codesign -dvv "$SHIPPED_APP" 2>&1 | grep -q "Signature=adhoc"; then
+  echo "verify: shipped helper $SHIPPED_APP is ad-hoc signed; TCC grants would" >&2
+  echo "  evaporate on rebuild. Build with a stable identity (see build-capture-helper.sh)." >&2
+  exit 1
+fi
+codesign -dvv "$SHIPPED_APP" 2>&1 | grep -E "Authority=|TeamIdentifier=|Identifier=" | sed 's/^/  signing: /' || true
+
 ./scripts/verify-real-transcriber-smoke.sh
 
 npm --prefix ui run build

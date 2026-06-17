@@ -9,17 +9,37 @@
 // workers, sends messages, or knows worker credentials. Rust owns all durable
 // behavior. Diagnostics go to stderr; only JSONL goes to stdout.
 //
+// Concurrency contract (the original helper deadlocked here — see
+// docs/research/capture-helper-deadlock-and-system-audio.md):
+//   * This file is `main.swift` with top-level `await`, so the Swift runtime
+//     drives an async main that SERVICES the main-actor executor. The old build
+//     used `dispatchMain()`, a GCD loop that parks the main thread WITHOUT
+//     pumping that executor, so AVFoundation/Speech continuations that hop to the
+//     main actor never resumed → wedge. We never call `dispatchMain()`.
+//   * Realtime audio callbacks do ZERO blocking work: they copy the buffer and
+//     `yield` it to a per-lane bounded `AsyncStream`. No per-callback `Task`, no
+//     locks, no I/O on the render thread. A single consumer task per lane drains
+//     the stream → RMS + convert + feed the transcriber + emit.
+//   * stdout is owned by one serial queue; `emit()` is a non-blocking `async`
+//     enqueue (never `.sync`, never called from a realtime thread). `flushStdout()`
+//     is a barrier used only before process exit so terminal events aren't lost.
+//   * Lifecycle runs under a structured `TaskGroup`; the stop signal
+//     (SIGTERM/SIGINT/`--seconds`) is observed on a DEDICATED queue, never `.main`.
+//   * Transcriber-bound audio is never dropped silently: a bounded-stream overflow
+//     increments a counter and emits `audio.dropped{lane,count}`.
+//
 // Subcommands:
 //   transcribe-file <path> [--locale en-US]
 //       Deterministic offline transcription of an audio file. Emits
 //       transcribe.final per phrase and transcribe.done with the full text.
 //   capture --mode mic|system|mic+system [--seconds N] [--locale en-US]
 //       Live capture. Emits source.started, audio.level per lane, segment
-//       partial/final per lane, and source.failed | source.stopped.
+//       partial/final per lane, audio.dropped on overflow, source.failed|stopped.
 //
 // Output event shapes (one JSON object per line):
 //   {"type":"source.started","mode":"mic+system","mic":true,"system":true}
 //   {"type":"audio.level","lane":"microphone","rms":0.04,"peak":0.2,"captured_ms":1000}
+//   {"type":"audio.dropped","lane":"system_audio","count":3}
 //   {"type":"segment.partial","lane":"microphone","speaker":"me","text":"...","start_ms":0,"end_ms":0}
 //   {"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"...","start_ms":0,"end_ms":0}
 //   {"type":"source.failed","reason":"screen_recording_permission_denied","lane":"system_audio","detail":"..."}
@@ -28,32 +48,43 @@
 //   {"type":"transcribe.done","text":"..."}
 
 import AVFoundation
+import CoreAudio
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
 import Speech
+import Synchronization
 
-// MARK: - Output
+// MARK: - Output (single serial writer; non-blocking enqueue, barrier flush)
 
 let stdoutQueue = DispatchQueue(label: "standby.capture.stdout")
 
+/// Non-blocking: serialize the JSON line onto the stdout queue and return. Safe to
+/// call from any non-realtime context. NEVER call from an audio render thread.
 func emit(_ object: [String: Any]) {
-    stdoutQueue.sync {
-        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
+    guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
+    stdoutQueue.async {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data([0x0a]))
     }
+}
+
+/// Barrier: block until all queued writes have flushed. Used ONLY just before
+/// `exit()` so a terminal event (source.failed / source.stopped / transcribe.done)
+/// can't be lost to the async writer.
+func flushStdout() {
+    stdoutQueue.sync {}
 }
 
 func logErr(_ message: String) {
     FileHandle.standardError.write(("standby-capture-helper: " + message + "\n").data(using: .utf8)!)
 }
 
-/// Fire `body` after `seconds` on a background thread, independent of the main
-/// async executor. Used as a hard watchdog: ScreenCaptureKit acquisition can
-/// hang with no throw/prompt when the host process lacks Screen-Recording TCC,
-/// and a structured-concurrency timeout cannot interrupt that non-cancellable
-/// await — but `exit()` from this thread terminates the stuck process.
+/// Fire `body` after `seconds` on a background thread, independent of the async
+/// executor. Used as a hard watchdog: ScreenCaptureKit acquisition can hang with
+/// no throw/prompt when the host process lacks Screen-Recording TCC, and a
+/// structured-concurrency timeout cannot interrupt that non-cancellable await —
+/// but `exit()` from this thread terminates the stuck process.
 func armWatchdog(_ seconds: Double, _ body: @escaping () -> Void) {
     DispatchQueue.global().asyncAfter(deadline: .now() + seconds, execute: body)
 }
@@ -63,6 +94,7 @@ func failAndExit(reason: String, lane: String?, detail: String?) -> Never {
     if let lane { event["lane"] = lane }
     if let detail { event["detail"] = detail }
     emit(event)
+    flushStdout()
     exit(1)
 }
 
@@ -80,6 +112,67 @@ func rms(of buffer: AVAudioPCMBuffer) -> (rms: Float, peak: Float) {
         if a > peak { peak = a }
     }
     return ((sum / Float(frames)).squareRoot(), peak)
+}
+
+/// A fixed ring of pre-allocated PCM buffers so the realtime mic render thread can
+/// copy WITHOUT calling `malloc` (allocation takes a lock and can stall the audio
+/// thread under memory pressure — the no-allocation-on-render-thread invariant).
+/// `count` exceeds the lane stream's buffering cap, so by the time the ring wraps
+/// back to a slot, that slot is no longer in the stream and is safe to overwrite.
+/// Single-producer (the tap block is called serially), so the index needs no lock.
+final class PCMBufferPool: @unchecked Sendable {
+    private let buffers: [AVAudioPCMBuffer]
+    private var index = 0
+
+    init?(format: AVAudioFormat, frameCapacity: AVAudioFrameCount, count: Int) {
+        var allocated: [AVAudioPCMBuffer] = []
+        allocated.reserveCapacity(count)
+        for _ in 0..<count {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCapacity)
+            else { return nil }
+            allocated.append(buffer)
+        }
+        self.buffers = allocated
+    }
+
+    /// Copy `source` into the next ring slot and return it. Returns nil only if the
+    /// source is larger than the pre-allocated capacity or is not float — both
+    /// outside steady state — so the caller drops rather than allocates.
+    func copyInto(_ source: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let frames = Int(source.frameLength)
+        guard AVAudioFrameCount(frames) <= buffers[index].frameCapacity,
+            let src = source.floatChannelData
+        else { return nil }
+        let destination = buffers[index]
+        index = (index + 1) % buffers.count
+        destination.frameLength = source.frameLength
+        guard let dst = destination.floatChannelData else { return nil }
+        for channel in 0..<Int(source.format.channelCount) {
+            memcpy(dst[channel], src[channel], frames * MemoryLayout<Float>.size)
+        }
+        return destination
+    }
+}
+
+/// Deep-copy a PCM buffer (allocates). Used off the realtime path — for SCStream
+/// and tap buffers, which are already owned but only valid for the callback. The
+/// realtime mic tap uses `PCMBufferPool` instead to avoid allocating on its thread.
+func copyPCM(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    guard let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity)
+    else { return nil }
+    copy.frameLength = buffer.frameLength
+    let channels = Int(buffer.format.channelCount)
+    let frames = Int(buffer.frameLength)
+    if let src = buffer.floatChannelData, let dst = copy.floatChannelData {
+        for ch in 0..<channels { memcpy(dst[ch], src[ch], frames * MemoryLayout<Float>.size) }
+    } else if let src = buffer.int16ChannelData, let dst = copy.int16ChannelData {
+        for ch in 0..<channels { memcpy(dst[ch], src[ch], frames * MemoryLayout<Int16>.size) }
+    } else if let src = buffer.int32ChannelData, let dst = copy.int32ChannelData {
+        for ch in 0..<channels { memcpy(dst[ch], src[ch], frames * MemoryLayout<Int32>.size) }
+    } else {
+        return nil
+    }
+    return copy
 }
 
 // MARK: - Format conversion (AVAudioConverter)
@@ -112,7 +205,7 @@ final class BufferConverter {
     }
 }
 
-// MARK: - Per-lane transcription pipeline
+// MARK: - Per-lane transcription pipeline (Apple Speech / SpeechAnalyzer)
 
 actor LanePipeline {
     let lane: String
@@ -180,29 +273,70 @@ actor LanePipeline {
     }
 }
 
-// MARK: - Level reporting (throttled to ~1/sec per lane)
+// MARK: - Capture lane: bounded realtime handoff + single consumer
 
-final class LevelMeter {
-    private let lane: String
-    private let queue = DispatchQueue(label: "standby.capture.level")
-    private var windowSum: Float = 0
-    private var windowPeak: Float = 0
-    private var windowFrames: Int = 0
-    private var capturedMs: Double = 0
-    private var lastEmit: Double = 0
-    private let sampleRate: Double
+/// One capture lane. The realtime source calls `submit(_:)` (non-blocking yield
+/// into a bounded stream). A single `runConsumer()` task drains it: RMS + level
+/// emit + feed the transcriber. Overflow is counted and surfaced as
+/// `audio.dropped` — lost transcript is never silent.
+final class CaptureLane: @unchecked Sendable {
+    let lane: String
+    let pipeline: LanePipeline
+    private let stream: AsyncStream<AVAudioPCMBuffer>
+    private let continuation: AsyncStream<AVAudioPCMBuffer>.Continuation
+    private let dropped = Atomic<Int>(0)
 
-    init(lane: String, sampleRate: Double) {
+    /// ~64 buffers of headroom (several seconds at typical buffer sizes). The
+    /// consumer (convert + feed) easily keeps up in steady state, so this never
+    /// drops in practice; if it ever does, the overflow is reported, not hidden.
+    init(lane: String, speaker: String, locale: Locale, bufferCap: Int = 64) {
         self.lane = lane
-        self.sampleRate = sampleRate
+        self.pipeline = LanePipeline(lane: lane, speaker: speaker, locale: locale)
+        let (stream, continuation) = AsyncStream<AVAudioPCMBuffer>.makeStream(
+            bufferingPolicy: .bufferingNewest(bufferCap))
+        self.stream = stream
+        self.continuation = continuation
     }
 
-    func observe(rms: Float, peak: Float, frames: Int) {
-        queue.sync {
-            windowSum += rms * rms * Float(frames)
-            windowPeak = max(windowPeak, peak)
+    func start() async throws { try await pipeline.start() }
+
+    /// Called from a realtime audio thread. Non-blocking: yield or count a drop.
+    func submit(_ buffer: AVAudioPCMBuffer) {
+        switch continuation.yield(buffer) {
+        case .dropped:
+            dropped.wrappingAdd(1, ordering: .relaxed)
+        default:
+            break
+        }
+    }
+
+    /// Signal end-of-input so the consumer drains remaining buffers and returns.
+    func finishInput() { continuation.finish() }
+
+    func runConsumer() async {
+        var windowSum: Float = 0
+        var windowPeak: Float = 0
+        var windowFrames: Int = 0
+        var capturedMs: Double = 0
+        var lastEmit: Double = 0
+        var reportedDropped = 0
+
+        func reportDropsIfAny() {
+            let d = dropped.load(ordering: .relaxed)
+            if d > reportedDropped {
+                reportedDropped = d
+                emit(["type": "audio.dropped", "lane": lane, "count": d])
+            }
+        }
+
+        for await buffer in stream {
+            let sampleRate = buffer.format.sampleRate
+            let frames = Int(buffer.frameLength)
+            let (r, p) = rms(of: buffer)
+            windowSum += r * r * Float(frames)
+            windowPeak = max(windowPeak, p)
             windowFrames += frames
-            capturedMs += Double(frames) / sampleRate * 1000.0
+            if sampleRate > 0 { capturedMs += Double(frames) / sampleRate * 1000.0 }
             if capturedMs - lastEmit >= 1000.0 {
                 let meanRms = windowFrames > 0 ? (windowSum / Float(windowFrames)).squareRoot() : 0
                 emit([
@@ -216,12 +350,206 @@ final class LevelMeter {
                 windowSum = 0
                 windowPeak = 0
                 windowFrames = 0
+                reportDropsIfAny()
             }
+            await pipeline.feed(buffer)
         }
+        reportDropsIfAny()
     }
 }
 
-// MARK: - System audio capture (ScreenCaptureKit)
+// MARK: - System audio capture (Core Audio Process Tap — primary, output-independent)
+
+/// Captures system audio via a Core Audio process tap + private aggregate device.
+/// Unlike ScreenCaptureKit, this is NOT coupled to the output device, so it works
+/// when the default output is HDMI/Bluetooth (where SCStream delivers zero frames).
+/// It needs the `kTCCServiceAudioCapture` ("System Audio Recording Only") grant,
+/// detected by attempt-and-classify (no public pre-check API). Non-destructive:
+/// `muteBehavior = .unmuted` keeps the call audible to the operator.
+///
+/// macOS 14.2+. The flow follows insidegui/AudioCap and Apple's "Capturing system
+/// audio with Core Audio taps": describe a global mixdown tap → create the tap →
+/// read its format → build a private aggregate device with the tap as a sub-tap
+/// and the real default output as the main sub-device (tap-as-main with no real
+/// sub-device yields silence) with drift correction on → install an IOProc block
+/// (its own dispatch queue, no CFRunLoop) → start.
+@available(macOS 14.2, *)
+final class SystemAudioTap {
+    enum TapError: Error { case notPermitted(OSStatus), setupFailed(OSStatus, String) }
+
+    /// `kAudioHardwareNotPermittedError` ('nope', 0x6E6F7065) is the
+    /// System-Audio-Recording-denied status, but it isn't surfaced as a Swift
+    /// symbol — define it from its FourCC value.
+    static let notPermittedStatus: OSStatus = 1_852_797_029
+
+    private let onBuffer: (AVAudioPCMBuffer) -> Void
+    private let ioQueue = DispatchQueue(label: "standby.capture.tap.io")
+    private var tapID = AudioObjectID(kAudioObjectUnknown)
+    private var aggregateID = AudioObjectID(kAudioObjectUnknown)
+    private var ioProcID: AudioDeviceIOProcID?
+    private var format: AVAudioFormat?
+
+    init(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) {
+        self.onBuffer = onBuffer
+    }
+
+    func start() throws {
+        // Clean up any partially-created CoreAudio objects on ANY failure path so a
+        // throw (e.g. aggregate creation fails after the tap exists) never leaks a
+        // process tap or aggregate device.
+        var succeeded = false
+        defer { if !succeeded { teardown() } }
+
+        // 1. Global mixdown of all output (every participant). The operator's own
+        //    mic does not flow to local output, so a per-PID tap is a later
+        //    mic-bleed refinement, not needed for correctness here.
+        let description = CATapDescription(stereoMixdownOfProcesses: [])
+        description.name = "StandbyCaptureTap"
+        description.isPrivate = true
+        description.isExclusive = false
+        description.muteBehavior = .unmuted  // keep the call audible — non-destructive
+
+        var newTap = AudioObjectID(kAudioObjectUnknown)
+        let createStatus = AudioHardwareCreateProcessTap(description, &newTap)
+        if createStatus == Self.notPermittedStatus {
+            throw TapError.notPermitted(createStatus)
+        }
+        guard createStatus == noErr, newTap != kAudioObjectUnknown else {
+            throw TapError.setupFailed(createStatus, "AudioHardwareCreateProcessTap")
+        }
+        tapID = newTap
+
+        // 2. The tap's stream format.
+        let tapFormat = try Self.readTapFormat(tapID)
+        self.format = tapFormat
+
+        // 3. Private aggregate device: the tap as a sub-tap with the REAL default
+        //    output as the main sub-device. tap-as-main with no real sub-device
+        //    yields silence-with-noErr, so a missing default output must FAIL (not
+        //    silently produce a live-looking, empty lane) — fall back to SCStream.
+        guard let outputUID = Self.defaultOutputDeviceUID() else {
+            throw TapError.setupFailed(0, "no default output device (tap would yield silence)")
+        }
+        // CoreAudio wants CFNumber (0/1) for these flags, NOT CFBoolean. A Swift
+        // `true` bridges to kCFBooleanTrue, and some HAL versions then silently
+        // ignore the key — e.g. drift compensation stays OFF, the documented cause
+        // of crackling/silence at 20–40 min. Pass Int so each bridges to CFNumber.
+        let aggUID = "com.standby.capture.aggregate.\(description.uuid.uuidString)"
+        let aggDescription: [String: Any] = [
+            kAudioAggregateDeviceNameKey as String: "StandbyCaptureAggregate",
+            kAudioAggregateDeviceUIDKey as String: aggUID,
+            kAudioAggregateDeviceIsPrivateKey as String: 1,
+            kAudioAggregateDeviceIsStackedKey as String: 0,
+            kAudioAggregateDeviceTapAutoStartKey as String: 1,
+            // kAudioAggregateDeviceMainSubDeviceKey resolves to "master" in the SDK.
+            kAudioAggregateDeviceMainSubDeviceKey as String: outputUID,
+            kAudioAggregateDeviceSubDeviceListKey as String: [
+                [
+                    kAudioSubDeviceUIDKey as String: outputUID,
+                    kAudioSubDeviceDriftCompensationKey as String: 1,
+                ]
+            ],
+            kAudioAggregateDeviceTapListKey as String: [
+                [
+                    kAudioSubTapUIDKey as String: description.uuid.uuidString,
+                    kAudioSubTapDriftCompensationKey as String: 1,
+                ]
+            ],
+        ]
+
+        var newAgg = AudioObjectID(kAudioObjectUnknown)
+        let aggStatus = AudioHardwareCreateAggregateDevice(aggDescription as CFDictionary, &newAgg)
+        guard aggStatus == noErr, newAgg != kAudioObjectUnknown else {
+            throw TapError.setupFailed(aggStatus, "AudioHardwareCreateAggregateDevice")
+        }
+        aggregateID = newAgg
+
+        // 4. IOProc on the aggregate. The block runs on ioQueue (no CFRunLoop). It
+        //    wraps the input buffer list no-copy, copies it (the list is only valid
+        //    for the call), and hands the owned buffer to the lane.
+        let onBuffer = self.onBuffer
+        let fmt = tapFormat
+        var newProc: AudioDeviceIOProcID?
+        let procStatus = AudioDeviceCreateIOProcIDWithBlock(&newProc, aggregateID, ioQueue) {
+            _, inInputData, _, _, _ in
+            guard let wrapped = AVAudioPCMBuffer(pcmFormat: fmt, bufferListNoCopy: inInputData),
+                let owned = copyPCM(wrapped)
+            else { return }
+            onBuffer(owned)
+        }
+        guard procStatus == noErr, let proc = newProc else {
+            throw TapError.setupFailed(procStatus, "AudioDeviceCreateIOProcIDWithBlock")
+        }
+        ioProcID = proc
+
+        let startStatus = AudioDeviceStart(aggregateID, proc)
+        guard startStatus == noErr else {
+            throw TapError.setupFailed(startStatus, "AudioDeviceStart")
+        }
+        succeeded = true
+    }
+
+    func stop() { teardown() }
+
+    /// Idempotent teardown of every CoreAudio object, in reverse creation order.
+    /// Safe to call on a partially-started tap (the start() failure path).
+    private func teardown() {
+        if let proc = ioProcID {
+            AudioDeviceStop(aggregateID, proc)
+            AudioDeviceDestroyIOProcID(aggregateID, proc)
+            ioProcID = nil
+        }
+        if aggregateID != kAudioObjectUnknown {
+            AudioHardwareDestroyAggregateDevice(aggregateID)
+            aggregateID = kAudioObjectUnknown
+        }
+        if tapID != kAudioObjectUnknown {
+            AudioHardwareDestroyProcessTap(tapID)
+            tapID = kAudioObjectUnknown
+        }
+    }
+
+    private static func readTapFormat(_ tapID: AudioObjectID) throws -> AVAudioFormat {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioTapPropertyFormat,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var asbd = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &asbd)
+        guard status == noErr, let format = AVAudioFormat(streamDescription: &asbd) else {
+            throw TapError.setupFailed(status, "kAudioTapPropertyFormat")
+        }
+        return format
+    }
+
+    private static func defaultOutputDeviceUID() -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+            device != kAudioObjectUnknown
+        else { return nil }
+
+        var uidAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var uid: CFString = "" as CFString
+        var uidSize = UInt32(MemoryLayout<CFString>.size)
+        let status = withUnsafeMutablePointer(to: &uid) { pointer in
+            AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &uidSize, pointer)
+        }
+        return status == noErr ? (uid as String) : nil
+    }
+}
+
+// MARK: - System audio capture (ScreenCaptureKit — fallback lane for older OS / built-in output)
 
 final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     private var stream: SCStream?
@@ -278,6 +606,60 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 }
 
+// MARK: - Stop signal (SIGTERM/SIGINT/--seconds on a DEDICATED queue, not .main)
+
+/// Resolves exactly once, from a signal source or a timer, both serviced on a
+/// dedicated dispatch queue. Critically NOT `.main`: under async main the helper
+/// must not depend on the main dispatch queue being pumped for shutdown to work —
+/// that coupling is what made the old build SIGTERM-immune.
+final class StopSignal: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "standby.capture.signals")
+    private var reason: String?
+    private var continuation: CheckedContinuation<String, Never>?
+    private var sources: [DispatchSourceSignal] = []
+
+    /// Arm handlers immediately (before long capture setup) so an early SIGTERM is
+    /// captured rather than dropped. Set the SIG_IGN disposition SYNCHRONOUSLY so a
+    /// signal arriving before the async block runs can't trigger the default
+    /// terminate action; the dispatch sources (created on `queue`) then observe it.
+    func arm(seconds: Double?) {
+        signal(SIGINT, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
+        queue.async {
+            for sig in [SIGINT, SIGTERM] {
+                let src = DispatchSource.makeSignalSource(signal: sig, queue: self.queue)
+                let name = sig == SIGINT ? "sigint" : "sigterm"
+                src.setEventHandler { self.fire(name) }
+                src.resume()
+                self.sources.append(src)
+            }
+            if let seconds {
+                self.queue.asyncAfter(deadline: .now() + seconds) { self.fire("timeout") }
+            }
+        }
+    }
+
+    func wait() async -> String {
+        await withCheckedContinuation { (cont: CheckedContinuation<String, Never>) in
+            queue.async {
+                if let reason = self.reason {
+                    cont.resume(returning: reason)
+                } else {
+                    self.continuation = cont
+                }
+            }
+        }
+    }
+
+    /// Always runs on `queue`. Resolves once; later signals are ignored.
+    private func fire(_ r: String) {
+        guard reason == nil else { return }
+        reason = r
+        continuation?.resume(returning: r)
+        continuation = nil
+    }
+}
+
 // MARK: - Argument parsing
 
 func argValue(_ name: String, in args: [String]) -> String? {
@@ -328,6 +710,7 @@ func runTranscribeFile(path: String) async {
         }
         let full = try await collected
         emit(["type": "transcribe.done", "text": full])
+        flushStdout()
         exit(0)
     } catch {
         failAndExit(reason: "unknown", lane: nil, detail: "transcribe-file: \(error)")
@@ -343,15 +726,17 @@ func runCapture(mode: String, seconds: Double?) async {
         failAndExit(reason: "unsupported", lane: nil, detail: "mode must include mic and/or system")
     }
 
-    let micPipeline = wantsMic ? LanePipeline(lane: "microphone", speaker: "me", locale: locale) : nil
-    let systemPipeline =
-        wantsSystem ? LanePipeline(lane: "system_audio", speaker: "system_audio", locale: locale) : nil
+    // Arm stop handlers BEFORE any long setup so an early SIGTERM is never lost.
+    let stop = StopSignal()
+    stop.arm(seconds: seconds)
 
+    var lanes: [CaptureLane] = []
     let engine = AVAudioEngine()
-    // Set once during setup, then only read by the stop handler.
-    nonisolated(unsafe) var systemCapture: SystemAudioCapture?
+    var systemCapture: SystemAudioCapture?
+    // Type-erased teardown for the Core Audio tap (its type is @available-gated).
+    var stopSystemTap: (() -> Void)?
 
-    // Microphone lane
+    // Microphone lane (output-independent; always available once granted).
     if wantsMic {
         let granted = await withCheckedContinuation { continuation in
             AVCaptureDevice.requestAccess(for: .audio) { continuation.resume(returning: $0) }
@@ -359,90 +744,111 @@ func runCapture(mode: String, seconds: Double?) async {
         guard granted else {
             failAndExit(reason: "mic_permission_denied", lane: "microphone", detail: nil)
         }
-        do { try await micPipeline?.start() } catch {
+        let lane = CaptureLane(lane: "microphone", speaker: "me", locale: locale)
+        do { try await lane.start() } catch {
             failAndExit(reason: "unknown", lane: "microphone", detail: "mic transcriber: \(error)")
         }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        let meter = LevelMeter(lane: "microphone", sampleRate: format.sampleRate)
+        // Pre-allocate the ring HERE (off the render thread). Capacity 2× the tap
+        // buffer size absorbs occasional larger callbacks; 96 slots exceed the lane
+        // stream's 64-buffer cap so a slot is always free by the time the ring
+        // wraps. If allocation fails, degrade to per-callback copyPCM.
+        let micPool = PCMBufferPool(format: format, frameCapacity: 8192, count: 96)
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            let (r, p) = rms(of: buffer)
-            meter.observe(rms: r, peak: p, frames: Int(buffer.frameLength))
-            Task { await micPipeline?.feed(buffer) }
+            // Realtime thread: copy into a pre-allocated slot (no malloc) + yield.
+            if let owned = micPool?.copyInto(buffer) ?? copyPCM(buffer) {
+                lane.submit(owned)
+            }
         }
         do { try engine.start() } catch {
             failAndExit(reason: "no_input_device", lane: "microphone", detail: "\(error)")
         }
+        lanes.append(lane)
     }
 
-    // System audio lane
+    // System audio lane: prefer the output-independent Core Audio tap; fall back
+    // to ScreenCaptureKit (output-coupled) on older OS or tap setup failure.
     if wantsSystem {
-        // No synchronous permission preflight: CGPreflightScreenCaptureAccess
-        // checks this binary's own TCC entry, but ScreenCaptureKit succeeds via
-        // the responsible (parent) process's grant, so a preflight gives false
-        // negatives. The watchdog below turns a genuine hang into an honest fail.
-        do { try await systemPipeline?.start() } catch {
+        let lane = CaptureLane(lane: "system_audio", speaker: "system_audio", locale: locale)
+        do { try await lane.start() } catch {
             failAndExit(reason: "unknown", lane: "system_audio", detail: "system transcriber: \(error)")
         }
-        let meter = LevelMeter(lane: "system_audio", sampleRate: 48_000)
-        let capture = SystemAudioCapture { buffer in
-            let (r, p) = rms(of: buffer)
-            meter.observe(rms: r, peak: p, frames: Int(buffer.frameLength))
-            Task { await systemPipeline?.feed(buffer) }
-        }
-        // Hard watchdog: SCStream acquisition can hang (no throw) when the host
-        // process lacks Screen-Recording TCC — common when a daemon spawns the
-        // helper. Fail honestly instead of stalling the meeting UI forever.
-        nonisolated(unsafe) var systemStarted = false
-        armWatchdog(8) {
-            if !systemStarted {
+
+        var systemStarted = false
+        if #available(macOS 14.2, *) {
+            let tap = SystemAudioTap { buffer in lane.submit(buffer) }
+            do {
+                try tap.start()
+                stopSystemTap = { tap.stop() }
+                systemStarted = true
+                logErr("system audio: Core Audio process tap active (output-independent)")
+            } catch SystemAudioTap.TapError.notPermitted {
+                // Attempt-and-classify: the tap's own TCC tier, distinct from
+                // Screen Recording. No public pre-check exists; this is the signal.
                 failAndExit(
-                    reason: "screen_recording_permission_denied", lane: "system_audio",
-                    detail: "system audio did not start in 8s (host process may lack Screen-Recording permission)")
+                    reason: "system_audio_permission_denied", lane: "system_audio",
+                    detail: "Core Audio tap not permitted — grant System Settings › Privacy & Security › System Audio Recording")
+            } catch {
+                logErr("system audio: tap unavailable (\(error)); falling back to ScreenCaptureKit")
             }
         }
-        do {
-            try await capture.start()
-            systemStarted = true
-            systemCapture = capture
-        } catch {
-            systemStarted = true
-            failAndExit(
-                reason: "screen_recording_permission_denied", lane: "system_audio", detail: "\(error)")
+
+        if !systemStarted {
+            let capture = SystemAudioCapture { buffer in lane.submit(buffer) }
+            // Hard watchdog: SCStream acquisition can hang (no throw) when the host
+            // process lacks Screen-Recording TCC. exit() from a background queue is
+            // the only escape from that non-cancellable await.
+            let started = Atomic<Bool>(false)
+            armWatchdog(8) {
+                if !started.load(ordering: .relaxed) {
+                    failAndExit(
+                        reason: "screen_recording_permission_denied", lane: "system_audio",
+                        detail: "system audio did not start in 8s (host process may lack Screen-Recording permission)")
+                }
+            }
+            do {
+                try await capture.start()
+                started.store(true, ordering: .relaxed)
+                systemCapture = capture
+            } catch {
+                started.store(true, ordering: .relaxed)
+                failAndExit(
+                    reason: "screen_recording_permission_denied", lane: "system_audio", detail: "\(error)")
+            }
         }
+        lanes.append(lane)
     }
 
     emit(["type": "source.started", "mode": mode, "mic": wantsMic, "system": wantsSystem])
 
-    func stopAll() async {
-        engine.stop()
-        if wantsMic { engine.inputNode.removeTap(onBus: 0) }
-        await systemCapture?.stop()
-        await micPipeline?.finish()
-        await systemPipeline?.finish()
-        emit(["type": "source.stopped"])
-        exit(0)
-    }
-
-    // SIGINT/SIGTERM → graceful stop
-    signal(SIGINT, SIG_IGN)
-    signal(SIGTERM, SIG_IGN)
-    let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-    let sigterm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-    sigint.setEventHandler { Task { await stopAll() } }
-    sigterm.setEventHandler { Task { await stopAll() } }
-    sigint.resume()
-    sigterm.resume()
-
-    if let seconds {
-        Task {
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            await stopAll()
+    // Consumers + stop task under one structured group. Realtime callbacks keep
+    // yielding into each lane's bounded stream concurrently; when stop fires we
+    // stop the sources and finish the inputs, the consumers drain and return, and
+    // only then do we finalize the transcribers (so no buffer is fed post-finalize).
+    await withTaskGroup(of: Void.self) { group in
+        for lane in lanes {
+            group.addTask { await lane.runConsumer() }
         }
+        group.addTask {
+            let reason = await stop.wait()
+            logErr("stop requested: \(reason)")
+            engine.stop()
+            if wantsMic { engine.inputNode.removeTap(onBus: 0) }
+            stopSystemTap?()
+            await systemCapture?.stop()
+            for lane in lanes { lane.finishInput() }
+        }
+        await group.waitForAll()
     }
+
+    for lane in lanes { await lane.pipeline.finish() }
+    emit(["type": "source.stopped"])
+    flushStdout()
+    exit(0)
 }
 
-// MARK: - Dispatch
+// MARK: - Dispatch (async top-level main — NO dispatchMain)
 
 switch subcommand {
 case "transcribe-file":
@@ -450,13 +856,11 @@ case "transcribe-file":
         logErr("usage: standby-capture-helper transcribe-file <path>")
         exit(2)
     }
-    Task { await runTranscribeFile(path: arguments[1]) }
-    dispatchMain()
+    await runTranscribeFile(path: arguments[1])
 case "capture":
     let mode = argValue("--mode", in: arguments) ?? "mic+system"
     let seconds = argValue("--seconds", in: arguments).flatMap(Double.init)
-    Task { await runCapture(mode: mode, seconds: seconds) }
-    dispatchMain()
+    await runCapture(mode: mode, seconds: seconds)
 default:
     logErr("unknown subcommand: \(subcommand)")
     exit(2)

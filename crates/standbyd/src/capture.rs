@@ -14,14 +14,16 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-/// Resolve the native helper binary: `STANDBY_CAPTURE_HELPER` overrides the
-/// default build output path.
+/// Resolve the native helper binary. Defaults to the SIGNED `.app` bundle (the
+/// shipped helper), whose stable code-signing identity keeps the macOS TCC
+/// Microphone + System-Audio grants across rebuilds. `STANDBY_CAPTURE_HELPER`
+/// overrides it (e.g. the bare build binary for a quick mechanism check).
 pub fn helper_path() -> PathBuf {
     if let Ok(path) = std::env::var("STANDBY_CAPTURE_HELPER") {
         return PathBuf::from(path);
     }
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../native/standby-capture-helper/build/standby-capture-helper")
+        .join("../../native/StandbyCapture.app/Contents/MacOS/standby-capture-helper")
 }
 
 /// Start local-Mac capture for a meeting. Records `meeting.started`, spawns the

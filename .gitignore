@@ -3,5 +3,6 @@
 /ui/dist/
 /.standby/
 /tmp/
+/native/standby-capture-helper/build/
 *.log
 .DS_Store

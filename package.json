@@ -1,0 +1,11 @@
+{
+  "name": "tacet",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "verify": "./scripts/verify.sh",
+    "ui:build": "npm --prefix ui run build",
+    "ui:dev": "npm --prefix ui run dev",
+    "dev": "cargo run -p tacetd"
+  }
+}

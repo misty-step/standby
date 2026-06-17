@@ -4,88 +4,144 @@ Date: 2026-06-17
 
 ## Synthesis
 
-Standby can be made useful for real meetings, but not by treating Microsoft
-Graph transcripts as a live feed. The shortest real Teams path is a meeting-bot
-transcript adapter, with Vexa as the first adapter because it exposes Teams bot
-creation plus WebSocket transcript updates. The long-term any-call path should
-be a native macOS capture adapter using ScreenCaptureKit for app/system audio
-and microphone samples, then a transcription engine behind the same transcript
-event interface.
+Standby should not build one primary capture adapter per meeting app. The
+product outcome is "hear the call I am already taking on this Mac," so the
+primary capture path should be OS-level local audio capture:
+
+```text
+LocalMacAudioSource
+  -> microphone audio + system/app audio
+  -> streaming transcription
+  -> transcript.segment.partial/final events
+  -> proposal detector
+  -> approved worker jobs
+```
+
+Microsoft Teams is still the first dogfood app, but "Teams first" means the
+first live test should be a Teams call whose audio flows through the Mac capture
+path. Teams, Zoom, Google Meet, Vexa, Recall, and Graph integrations are optional
+provider adapters for metadata, diarization, bot capture, or post-meeting
+backfill. They should not be the product core.
 
 Approved work should dispatch through a durable local job runner, not inside the
 approval request. The first unstubbed worker should be a read-only research
-worker that launches an installed local CLI agent and records stdout, stderr,
-exit status, duration, and artifact paths as normalized job events. Coding and
-mutation-capable workers should follow only after permission enforcement exists.
+worker that launches an installed local CLI agent with executable tool
+restrictions, records stdout, stderr, exit status, duration, and artifact paths
+as normalized job events, and passes a malicious-transcript sandbox verifier.
+Coding and mutation-capable workers should follow only after permission
+enforcement exists.
 
 ## Source Matrix
 
 | Source lane | Status | What it contributed | Key refs |
 | --- | --- | --- | --- |
-| Codebase | complete | Current Standby is demo-only: fixture transcript, `MockResearchWorker`, synchronous approval, no capture route. | `README.md`, `crates/standby-core/src/worker.rs`, `crates/standbyd/src/main.rs`, `ui/src/main.tsx`, `scripts/verify.sh` |
-| Docs | complete | Teams real-time media exists but is specialized; Graph transcripts and AI insights are post-meeting. ScreenCaptureKit and Speech support local capture/transcription primitives. | Microsoft Learn, Apple Developer |
-| Retrieval | complete | Vexa gives a concrete Teams/Meet/Zoom bot transcript API with WebSocket updates and self-host/cloud options. | Vexa docs |
-| Agentic acquisition | failed | Firecrawl search returned HTTP 402, so it did not contribute evidence. | `firecrawl_search` |
-| Extraction | complete | Fetched official Microsoft/Apple/Vexa pages for constraints and protocol details. | Parallel `web_fetch` excerpts |
-| Recency / discourse | partial | Microsoft Q&A reinforces that non-.NET Teams live media access is not a simple Java/Node/Python RTMS equivalent. Treated as weaker than official docs. | Microsoft Q&A result |
-| Synthesis | complete | Recommended Vexa-first plus local capture fallback, with worker dispatch separated from approval. | This memo |
-| Repo-aware critique | complete | Sidecar critic found the one-slice "Teams + all workers" plan blocking; accepted its split-scope recommendation. | Subagent `019ed3aa-97e1-7103-8ad6-da64251d8572` |
+| Codebase | complete | Current Standby is demo-only: fixture transcript, `MockResearchWorker`, synchronous approval, no real capture route, and UI copy that overclaims live transcription. | `README.md`, `crates/standby-core/src/worker.rs`, `crates/standbyd/src/main.rs`, `ui/src/main.tsx`, `scripts/verify.sh` |
+| Granola | complete | Strong evidence for bot-free meeting capture: desktop app uses system audio plus microphone, works across meeting apps, and accepts weaker desktop diarization in exchange for universal capture. | https://docs.granola.ai/help-center/taking-notes/transcription, https://www.granola.ai/, https://www.granola.ai/blog/granola-microsoft-teams-bot-free-notes |
+| Monologue | complete | Conversation material is exposed to agents through API/CLI/MCP style surfaces rather than meeting-app-specific capture contracts. Local evidence shows a single app-owned transcript history. | https://every.to/on-every/introducing-monologue-notes-record-every-meeting-call-and-voice-memo, https://github.com/EveryInc/monologue-toolkit, `/Users/phaedrus/Development/atlas/systems/daybook/scripts/MONOLOGUE-SYNC.md` |
+| Open source alternatives | complete | Meetily and Minutes reinforce the local-capture/local-corpus pattern: microphone/system audio, local processing, markdown/JSONL/CLI/MCP access for agents. | https://github.com/Zackriya-Solutions/meetily, https://meetily.ai/open-source, https://www.useminutes.app/for-agents |
+| Apple platform docs | complete | ScreenCaptureKit is the native macOS foundation for screen/audio capture; Speech is the native framework for live speech-to-text. | https://developer.apple.com/documentation/screencapturekit, https://developer.apple.com/documentation/speech |
+| Rust capture bindings | partial | `screencapturekit-rs` appears to expose ScreenCaptureKit from Rust, including system audio and microphone features. Treat it as a candidate to verify in implementation, not a committed dependency. | https://github.com/svtlabs/screencapturekit-rs, https://crates.io/crates/screencapturekit |
+| Teams and bot providers | complete | Teams raw media, Graph transcripts, Vexa, and Recall remain useful optional adapters, but they fail the "any call on my Mac" primary path. | Microsoft Learn, Vexa docs, Recall docs/research |
+| Local worker CLIs | complete | `codex`, `claude`, `pi`, `goose`, and `opencode` are installed and expose noninteractive modes suitable for an adapter. | local command help output |
 
 ## Evidence
 
-### Teams Capture
+### Granola Pattern: Bot-Free Desktop Capture
 
-Microsoft's official real-time media bot platform can give bots raw voice,
-video, and screen-sharing streams, but Microsoft frames it for specialized
-scenarios such as compliance recording, Cloud Video Interop, and contact center
-integration. The same page explicitly recommends Copilot Studio agents or Graph
-meeting transcripts for AI meeting-agent scenarios instead of raw media bots:
-https://learn.microsoft.com/en-us/microsoftteams/platform/bots/calls-and-meetings/real-time-media-concepts
+Granola's homepage says it works without a meeting bot, uses computer audio, and
+works with Zoom, Google Meet, Teams, and other meeting apps:
+https://www.granola.ai/
 
-The Teams calls/meetings bot overview says Graph calling APIs can access
-real-time audio/video streams, but application-hosted media bots require the
-`Microsoft.Graph.Communications.Calls.Media` .NET library and a Windows Server
-or Windows Server guest OS:
-https://learn.microsoft.com/en-us/microsoftteams/platform/bots/calls-and-meetings/calls-meetings-bots-overview
+Granola's transcription docs are more precise. They say the desktop app runs on
+the user's computer and uses system audio plus microphone. The same docs state
+that desktop transcription distinguishes "Me" and "Them" rather than full live
+speaker diarization, and that system audio capture includes whatever audio is
+playing on the computer:
+https://docs.granola.ai/help-center/taking-notes/transcription
 
-Microsoft Graph transcript and recording APIs are not live. The transcripts
-overview says apps fetch transcripts/recordings after the meeting or call ends:
-https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/overview-transcripts
+Granola's Teams guide describes the Teams path as audio-device setup, not a
+Teams API integration. It calls out the macOS Microphone and Screen & System
+Audio Recording permissions and warns that mismatched Teams/system audio devices
+can cause one-sided capture:
+https://www.granola.ai/blog/granola-microsoft-teams-bot-free-notes
 
-Meeting AI Insights are also post-meeting. The limitations section says live
-notes are not supported and insights may take up to four hours after the call:
-https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/meeting-insights
+Design implication for Standby: copy the product shape, not the exact stack.
+Default to one local audio source that can hear any call. Treat speaker identity
+as a graduated capability: `me`, `system_audio`, `unknown`, and later diarized
+speaker labels when a source provides them.
 
-### Vexa As First Teams Adapter
+### Monologue Pattern: Conversation Corpus For Agents
 
-Vexa's WebSocket docs describe a concrete bot-plus-transcript protocol:
-`POST /bots`, `X-API-Key`, `platform: "teams"`, `native_meeting_id`, and a
-Teams `passcode`; then `GET /transcripts/{platform}/{native_id}` for bootstrap
-and `ws(s)://.../ws` for live updates:
-https://docs.vexa.ai/websocket
+Monologue's launch post describes recording and transcribing meetings, calls,
+and voice memos, then making that material available to agents and tools:
+https://every.to/on-every/introducing-monologue-notes-record-every-meeting-call-and-voice-memo
 
-Vexa's product pages describe one API across Google Meet, Microsoft Teams, and
-Zoom, real-time transcripts with speaker diarization, hosted or self-hosted
-deployment, and an MCP wrapper. Treat these as vendor claims, but the WebSocket
-protocol is concrete enough for an adapter:
-https://vexa.ai/use-cases/sales-call-transcription
-https://vexa.ai/integrations/claude-mcp
+The open `monologue-toolkit` repository exposes Monologue notes through a CLI
+and an installable agent skill. It is read-only today and supports listing,
+searching, fetching, and pulling summaries/transcripts through the public Notes
+API:
+https://github.com/EveryInc/monologue-toolkit
 
-### Any-App Mac Capture
+Local Atlas evidence shows Monologue data as one app-owned transcript history at
+`~/Library/Containers/com.zeitalabs.jottleai/Data/Documents/transcription_history.json`.
+The sync script reads that corpus and writes markdown; it does not need a Zoom,
+Teams, or Meet adapter:
+`/Users/phaedrus/Development/atlas/systems/daybook/scripts/MONOLOGUE-SYNC.md`
 
-Apple ScreenCaptureKit is the right native foundation for the eventual any-call
-Mac adapter. Apple documents high-performance capture of screen and audio
-content, with sample buffers delivered to the app:
+Design implication for Standby: the durable product object is the local event
+ledger and agent-facing artifacts, not the meeting app integration.
+
+### Open Source Pattern: Local Audio Plus Agent Surfaces
+
+Meetily describes itself as a privacy-first meeting assistant built around Rust,
+live transcription, speaker diarization, Ollama summarization, and local
+processing:
+https://github.com/Zackriya-Solutions/meetily
+
+Meetily's open source page emphasizes 100% local processing, no cloud, offline
+use, and local control over meeting data:
+https://meetily.ai/open-source
+
+Minutes positions the category as local conversation memory: structured markdown
+under `~/meetings/`, live transcript JSONL, CLI commands, and MCP tools that can
+be read by Codex, Claude Code, Pi, OpenCode, and other agents:
+https://www.useminutes.app/for-agents
+
+Design implication for Standby: local capture and local artifacts are enough for
+the primary loop. MCP/API integrations should sit behind the worker/artifact
+layer, not inside the realtime meeting listener.
+
+### Native Mac Capture
+
+Apple's ScreenCaptureKit documentation describes high-performance capture of
+screen and audio content on macOS:
 https://developer.apple.com/documentation/screencapturekit
 
-Apple's capture sample adds stream outputs for `.screen`, `.audio`, and
-`.microphone`, then converts audio `CMSampleBuffer` values into
-`AVAudioPCMBuffer`:
-https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos
-
-Apple's Speech framework can recognize live or prerecorded audio and provides
-SpeechAnalyzer, SpeechTranscriber, and input sequence providers:
+Apple's Speech framework documentation describes live speech-to-text support
+through SpeechAnalyzer and related APIs:
 https://developer.apple.com/documentation/speech
+
+The Rust `screencapturekit` crate is a candidate adapter for keeping the durable
+backend Rust-first while crossing the Apple framework boundary:
+https://github.com/svtlabs/screencapturekit-rs
+
+Implementation implication: first prove a small `standby-capture-smoke` binary
+can acquire TCC permissions, open a ScreenCaptureKit stream, see nonzero audio
+frames from system audio and mic, and emit sanitized audio-frame metrics. Only
+then wire transcription and proposal detection.
+
+### Optional Teams/Bot Providers
+
+Microsoft Graph transcript APIs are useful but post-meeting, not a live meeting
+command surface. Microsoft real-time media bots are official but Windows/.NET
+heavy and optimized for specialized scenarios. Vexa and Recall can still be
+valuable for bot capture and speaker-aware transcripts, especially in enterprise
+or remote-worker contexts.
+
+Design implication: keep the `TranscriptSource` trait, but make
+`LocalMacAudioSource` the default source. Provider adapters are additive:
+`VexaBotSource`, `RecallBotSource`, `TeamsGraphImportSource`,
+`ZoomRtmsSource`, and similar.
 
 ### Local Worker CLIs
 
@@ -104,37 +160,79 @@ hermes
 thinktank
 ```
 
-Automation-relevant help output:
+Automation-relevant help output verified locally:
 
-- `codex exec` supports non-interactive execution, `--json`, `--output-schema`,
-  `--output-last-message`, `--sandbox`, `--ask-for-approval`, and `-C`.
-- `claude -p` supports non-interactive output, JSON and stream-JSON output,
-  JSON schema, tool allow/deny lists, and permission modes.
-- `pi -p` supports non-interactive text/json/rpc modes and tool allow/deny
-  lists.
-- `opencode run` supports `--format json`.
-- `goose run` supports stdin/file instructions, `--quiet`, `--no-session`,
+- `codex exec` supports noninteractive execution, JSONL events, output schema,
+  output-last-message, sandbox selection, and working directory selection.
+- `claude -p` supports noninteractive output, JSON/stream-json, JSON schema,
+  tool allow/deny lists, permission modes, and max budget.
+- `pi -p` supports noninteractive text/json/rpc modes, read-only tool
+  allowlists, no-session mode, and provider/model overrides.
+- `opencode run` supports JSON event output.
+- `goose run` supports stdin/file instructions, quiet mode, no-session mode,
   provider/model overrides, and max-turn limits.
+
+Design implication: start with one real read-only worker profile that can prove
+tool restrictions. Claude Code is the best first target because local help shows
+tool allow/deny controls, structured output, and budget limits. Pi is a viable
+fallback because it can run with `--no-tools` or an explicit read-only tool list.
+Codex remains important for later coding workers, but it should not be the first
+approved-meeting worker unless its profile passes the same sandbox verifier. Keep
+the adapter output normalized so another CLI can replace it without changing the
+meeting UI.
 
 ## Conflicts
 
-Microsoft's official guidance creates a tension: Teams has a supported
-real-time media path, but Microsoft does not recommend raw media bots for AI
-meeting-agent scenarios and the app-hosted media route is Windows/.NET-shaped.
-That makes it the wrong first path for a local Rust/Mac product.
+Teams-first no longer means Teams-API-first. The more correct first product
+claim is: "Standby can listen to the audio from a Teams call running on this Mac
+and propose work." That also proves the harder long-term requirement: any call
+whose audio is routed through the computer can be captured.
 
-Vexa is vendor/product evidence rather than platform-owner evidence, but it has
-a concrete API and matches the user outcome sooner. The design should isolate
-Vexa behind `TranscriptSource` so Microsoft-native or local-capture adapters can
-replace it without changing proposal or worker orchestration.
+Local capture weakens speaker attribution. Granola's desktop behavior shows
+this is an acceptable first tradeoff: the user still gets `me` versus
+`system_audio` lanes, and provider adapters can improve speaker identity later.
+
+Local capture increases platform-permission risk. TCC permissions, device
+selection, audio routing, mute state, and background noise become first-class
+product states. The UI and verification harness must expose these states instead
+of pretending every call is a clean transcript feed.
+
+## Updated Shape Recommendation
+
+1. Build `LocalMacAudioSource` first.
+2. Build a `TranscriptSource` trait that can also host Vexa/Recall/Graph later.
+3. Add an audio-capture proof command before proposal work:
+   `./scripts/verify-local-capture-smoke.sh`.
+4. Add a deterministic real-transcriber proof command that generates a temporary
+   known audio sample and asserts a final transcript:
+   `./scripts/verify-real-transcriber-smoke.sh`.
+5. Add transcript fixture replay for deterministic proposal tests:
+   `./scripts/verify-local-transcript-fixture.sh`.
+6. Replace `MockResearchWorker` in the approved path with a queued, read-only
+   subprocess runner and `./scripts/verify-worker-runner.sh`.
+7. Add a malicious-transcript worker safety check:
+   `./scripts/verify-worker-sandbox.sh`.
+8. Add browser state verification:
+   `./scripts/verify-ui-states.sh`.
+9. Add a gated live Teams dogfood smoke over the local capture path:
+   `STANDBY_LIVE_CAPTURE=1 ./scripts/verify-live-teams-local.sh`.
+10. Keep UI demo mode explicit; normal route must show real source state.
 
 ## Residual Risk
 
-- Vexa Teams joining depends on meeting ID/passcode, bot acceptance, account
-  limits, and consent expectations. A real meeting smoke must prove this.
-- Local macOS capture needs user-granted TCC permissions and may face audio
-  device edge cases. Do not promise speaker identity from the local adapter.
+- macOS capture requires user-granted Microphone and Screen & System Audio
+  Recording permissions. Without them, Standby can only be fixture-ready.
+- System audio capture may include notification sounds or non-meeting audio. The
+  first version should label confidence/source honestly and avoid overpromising
+  speaker identity.
+- Local transcription accuracy and latency are unproven. The first
+  implementation may choose Apple Speech, a local Whisper-family binary, or a
+  cloud transcription provider behind a `Transcriber` interface, but it must
+  preserve the event schema.
 - CLI worker adapters may hit auth prompts or model/account limits. The first
   worker must fail visibly with `agent_job.failed`, not hang the meeting UI.
-- Firecrawl search was unavailable due HTTP 402; Parallel search/fetch plus
-  local command evidence supplied the research base.
+- A local CLI agent with broad shell or MCP tools can follow malicious transcript
+  text. The first worker profile is not accepted until negative sandbox tests
+  prove repo mutation and external-send attempts are denied or impossible.
+- Provider adapters are still useful, but adding one before the local capture
+  proof risks reintroducing the per-app adapter trap.

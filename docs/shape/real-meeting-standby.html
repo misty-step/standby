@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Standby Real Meeting Plan</title>
+  <title>Standby Local Capture Plan</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
@@ -135,7 +135,7 @@
 
 <div class="ae-screen plan-wide">
   <header class="ae-bar">
-    <a class="ae-name" href="../context-packets/real-meeting-standby.md">STANDBY / REAL MEETING HANDOFF</a>
+    <a class="ae-name" href="../context-packets/real-meeting-standby.md">STANDBY / LOCAL CAPTURE HANDOFF</a>
     <p class="ae-chrome">research + shape plan for /deliver</p>
   </header>
 
@@ -143,42 +143,42 @@
     <article class="ae-view">
       <section class="hero" aria-label="Plan contract">
         <div>
-          <p class="ae-chrome kicker">PREMISE sha256:0c05cb137e5f9e87a67a5a3c7bd230e7388a0b81bb3d0284327da85fd9d753fa</p>
-          <h1 class="ae-strong">Make Standby work in a real Teams meeting, then route approved work to a real local agent.</h1>
-          <p class="ae-lede">Chosen design: Vexa Teams transcript adapter first, durable event replay, deterministic approval, and an out-of-request local subprocess worker for read-only research. Native Mac any-call capture and mutation-capable coding workers follow after the first live loop is proven.</p>
+          <p class="ae-chrome kicker">PREMISE sha256:50d5c741b4f8987313043d3ca964085c1e1c64e09f9bf38e2ef7543a0061f4d3</p>
+          <h1 class="ae-strong">Make Standby hear any Mac call, with Teams as the first dogfood meeting.</h1>
+          <p class="ae-lede">Chosen design: local microphone plus system/app audio capture first, real transcription behind a source adapter, deterministic proposal approval, and an out-of-request local CLI worker for read-only research. Vexa, Recall, Teams, Zoom, and Meet integrations become optional providers, not the product core.</p>
         </div>
         <aside class="ae-panel">
           <h2 class="ae-h">CHOSEN DESIGN</h2>
-          <p><span class="status"><svg class="ae-icon ae-ok"><use href="#i-check"></use></svg> Vexa Teams ingest + local WorkerRunner.</span></p>
-          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> First worker is read-only research.</span></p>
+          <p><span class="status"><svg class="ae-icon ae-ok"><use href="#i-check"></use></svg> LocalMacAudioSource is the primary capture path.</span></p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> First worker is read-only research with negative sandbox proof.</span></p>
           <div class="rule"></div>
           <h2 class="ae-h">PROOF SURFACE</h2>
-          <p><code>verify-vexa-fixture.sh</code>, <code>verify-worker-runner.sh</code>, and credential-gated <code>verify-live-teams.sh</code>.</p>
+          <p><code>verify-local-capture-smoke.sh</code>, <code>verify-real-transcriber-smoke.sh</code>, <code>verify-local-transcript-fixture.sh</code>, <code>verify-worker-runner.sh</code>, <code>verify-worker-sandbox.sh</code>, <code>verify-ui-states.sh</code>, and gated <code>verify-live-teams-local.sh</code>.</p>
           <div class="rule"></div>
-          <p class="ae-dim">Stop if live Teams credentials or a joinable test meeting are unavailable and dogfood readiness is expected.</p>
+          <p class="ae-dim">Stop if capture lacks macOS permission, audio lanes stay silent, transcription is stubbed, or worker auth blocks.</p>
         </aside>
       </section>
 
       <section class="grid-5" aria-label="Executive contract" style="margin-top: 2em">
         <article class="cell">
           <h2 class="ae-h">STANDARDS</h2>
-          <p>Real capture, real worker, durable events, explicit failure states, and no transcript-to-mutation path.</p>
+          <p>Real capture, real transcription, real worker, durable events, honest failure states, and no transcript-to-mutation path.</p>
         </article>
         <article class="cell">
           <h2 class="ae-h">ACCEPTANCE</h2>
-          <p>Live Teams transcript creates proposal; approved card launches a real local CLI and returns an artifact or failure receipt.</p>
+          <p>Teams audio routed through the Mac creates transcript evidence; an approved card launches a local CLI and returns an artifact or failure receipt.</p>
         </article>
         <article class="cell">
           <h2 class="ae-h">VERIFY</h2>
-          <p>Fixture replay, live Teams smoke, worker smoke, browser status check, and existing repo gate.</p>
+          <p>Capture smoke, generated-audio transcriber smoke, transcript fixture replay, worker sandbox, UI state walk, live Teams local capture, and existing repo gate.</p>
         </article>
         <article class="cell">
           <h2 class="ae-h">COMMUNICATE</h2>
-          <p>Report whether the result is fixture-ready, worker-ready, or dogfood-ready. Do not collapse these states.</p>
+          <p>Report exact readiness: fixture-ready, capture-ready, transcript-ready, worker-ready, live Teams-ready, or dogfood-ready.</p>
         </article>
         <article class="cell wash">
           <h2 class="ae-h">STOP IF</h2>
-          <p>Vexa cannot join, CLI auth blocks, approval hangs, or UI cannot show failure as a first-class state.</p>
+          <p>Permissions fail, no audio arrives, transcription is not real, worker sandbox fails, approval hangs, or UI cannot show failure as first-class state.</p>
         </article>
       </section>
 
@@ -189,19 +189,19 @@
         </article>
         <article class="cell">
           <h2 class="ae-h">CHANGE SHAPE</h2>
-          <p>Add <code>TranscriptSource</code> and <code>WorkerRunner</code> modules. Keep provider and CLI details behind adapters.</p>
+          <p>Add <code>TranscriptSource</code>, a local capture/transcriber boundary, and <code>WorkerRunner</code>. Keep app/provider details behind adapters.</p>
         </article>
         <article class="cell wash">
-          <h2 class="ae-h">LIVE RISK</h2>
-          <p>Graph transcript APIs are post-meeting; Teams raw media bots are Windows/.NET-heavy and not the first product path.</p>
+          <h2 class="ae-h">WHY THIS WINS</h2>
+          <p>It proves the any-call product promise immediately. Teams-first becomes a dogfood test of the universal path, not a bespoke integration.</p>
         </article>
       </section>
 
       <section class="grid-2" aria-label="Scope and anchors" style="margin-top: 2em">
         <article class="cell">
           <h2 class="ae-h">SCOPE</h2>
-          <p><strong>Goal:</strong> real Teams transcript input and real approved read-only research output.</p>
-          <p><strong>Non-goals:</strong> native Mac capture, Teams media bot, Graph post-meeting ingestion, repo mutation, Slack/email sends.</p>
+          <p><strong>Goal:</strong> local audio capture from a real Teams call and real approved read-only research output.</p>
+          <p><strong>Non-goals:</strong> Teams media bot first, Vexa-first dependency, Graph post-meeting import, repo mutation, Slack/email sends, perfect diarization.</p>
           <p><strong>Invariant:</strong> transcript text is quoted evidence, never executable instruction.</p>
         </article>
         <article class="cell">
@@ -209,7 +209,7 @@
           <p><a href="../../AGENTS.md">AGENTS.md</a> - event log and approval safety boundaries.</p>
           <p><a href="../../crates/standby-core/src/domain.rs">domain.rs</a> - schemas for transcript, proposal, job, artifact.</p>
           <p><a href="../../crates/standby-core/src/worker.rs">worker.rs</a> - remove mock from real approval path.</p>
-          <p><a href="../../crates/standbyd/src/main.rs">main.rs</a> - approval route and new ingest routes.</p>
+          <p><a href="../../crates/standbyd/src/main.rs">main.rs</a> - approval route and source/job routes.</p>
           <p><a href="../../ui/src/main.tsx">main.tsx</a> - source/job status must be honest.</p>
         </article>
       </section>
@@ -217,24 +217,24 @@
       <section class="ae-panel" aria-label="Execution plan" style="margin-top: 2em">
         <h2 class="ae-h">EXECUTION PLAN</h2>
         <div class="phase">
-          <strong class="ae-accent">1 proof loop</strong>
-          <p>Add replayable Vexa fixture ingestion and local worker-runner smoke before replacing demo behavior.</p>
-          <p class="ae-dim">Evidence: scripts, fixture payloads, event projection JSON.</p>
+          <strong class="ae-accent">1 capture proof</strong>
+          <p>Add the local capture smoke first. It must see nonzero microphone and system-audio lane events and write sanitized evidence.</p>
+          <p class="ae-dim">Evidence: <code>docs/evidence/real-meeting/</code> logs and source events.</p>
         </div>
         <div class="phase">
-          <strong class="ae-accent">2 capture</strong>
-          <p>Implement Vexa Teams source: create bot, bootstrap transcript, subscribe over WebSocket, dedupe, append events.</p>
-          <p class="ae-dim">Evidence: fixture replay and live Teams smoke when credentials exist.</p>
+          <strong class="ae-accent">2 transcript</strong>
+          <p>Wire a real transcriber behind <code>Transcriber</code>. Generate a temporary known audio sample and assert a final segment before any live-call claim.</p>
+          <p class="ae-dim">Evidence: generated-audio transcriber smoke, partial/final fixture replay, and live final segment from Teams audio.</p>
         </div>
         <div class="phase">
           <strong class="ae-accent">3 worker</strong>
-          <p>Change approval to enqueue; run a separate local subprocess worker with timeout, stdout/stderr receipt, artifact file.</p>
-          <p class="ae-dim">Evidence: nonblocking approval timing and completed or failed job events.</p>
+          <p>Change approval to enqueue; run a separate local subprocess worker with denied shell/edit/send tools, timeout, stdout/stderr receipt, and artifact file.</p>
+          <p class="ae-dim">Evidence: nonblocking approval timing, malicious-transcript sandbox denial, and completed or failed job events.</p>
         </div>
         <div class="phase">
           <strong class="ae-accent">4 interface</strong>
-          <p>Remove normal-route auto-demo. Render source status, job status, failures, and artifact links from projection.</p>
-          <p class="ae-dim">Evidence: browser screenshots for connecting, live, failed, running, complete.</p>
+          <p>Remove normal-route auto-demo. Render permission, audio, transcript, job, failure, and artifact states from projection.</p>
+          <p class="ae-dim">Evidence: scripted browser state walk and screenshots for waiting, no-audio, failed, running, and complete states.</p>
         </div>
       </section>
 
@@ -247,10 +247,11 @@
                 <tr><th>option</th><th>why it helps</th><th>failure</th><th>verdict</th></tr>
               </thead>
               <tbody>
-                <tr><td class="ae-item">Vexa first</td><td>Concrete Teams bot and WebSocket transcript API.</td><td>Vendor dependency and bot admission risk.</td><td>choose</td></tr>
-                <tr><td class="ae-item">Microsoft media bot</td><td>Official raw media path.</td><td>Windows/.NET, specialized scenarios, slower to ship.</td><td>defer</td></tr>
-                <tr><td class="ae-item">Graph transcripts</td><td>Official post-meeting artifacts.</td><td>Not live; insights can be delayed.</td><td>reject for live</td></tr>
-                <tr><td class="ae-item">Mac capture first</td><td>Ultimate any-call direction.</td><td>Permissions and transcription complexity delay Teams dogfood.</td><td>second slice</td></tr>
+                <tr><td class="ae-item">Local Mac capture</td><td>Works with Teams and any call routed through the computer.</td><td>TCC permissions, audio routing, weak speaker identity.</td><td>choose</td></tr>
+                <tr><td class="ae-item">Vexa first</td><td>Concrete Teams bot transcript API.</td><td>Per-app/provider trap, bot admission, vendor risk.</td><td>optional later</td></tr>
+                <tr><td class="ae-item">Microsoft media bot</td><td>Official raw media path.</td><td>Windows/.NET, specialized scenarios, slow local path.</td><td>reject first</td></tr>
+                <tr><td class="ae-item">Graph transcripts</td><td>Official post-meeting artifacts.</td><td>Not live; delayed; licensing constraints.</td><td>reject for live</td></tr>
+                <tr><td class="ae-item">Manual paste</td><td>No capture complexity.</td><td>No live command surface.</td><td>fixtures only</td></tr>
               </tbody>
             </table>
           </div>
@@ -263,10 +264,12 @@
                 <tr><th>risk</th><th>mitigation</th><th>owner</th></tr>
               </thead>
               <tbody>
-                <tr><td>Vexa bot cannot join Teams.</td><td>Live smoke fails closed; report fixture-ready only.</td><td>agent + operator</td></tr>
+                <tr><td>macOS permission denied.</td><td>Permission-specific events and capture-smoke failure.</td><td>agent + operator</td></tr>
+                <tr><td>Teams audio routed to another device.</td><td>Show mic/system lane activity and no-audio states.</td><td>agent</td></tr>
+                <tr><td>Native helper grows into product logic.</td><td>Helper emits JSONL only; Rust owns durable behavior.</td><td>agent</td></tr>
+                <tr><td>Worker follows malicious transcript text.</td><td>Tool-denied profile and <code>verify-worker-sandbox.sh</code>.</td><td>agent</td></tr>
                 <tr><td>Worker CLI prompts for auth.</td><td>Timeout, stderr receipt, visible <code>agent_job.failed</code>.</td><td>agent</td></tr>
-                <tr><td>Proposal spam from real transcript noise.</td><td>Fixture tests require quoted evidence and low-noise output.</td><td>agent</td></tr>
-                <tr><td>Future coding worker mutates files unexpectedly.</td><td>Keep first worker read-only; require ADR and permission tests for mutation.</td><td>agent</td></tr>
+                <tr><td>Future coding worker mutates files unexpectedly.</td><td>Keep first worker scratch-only; require ADR and permission tests for mutation.</td><td>agent</td></tr>
               </tbody>
             </table>
           </div>
@@ -276,26 +279,37 @@
       <section class="ae-panel" aria-label="Verification topology" style="margin-top: 2em">
         <h2 class="ae-h">VERIFICATION SYSTEM</h2>
         <div class="grid-3" style="margin-top: 1em">
-          <article class="cell"><h3 class="ae-h">CLAIM</h3><p>Standby works in a real Teams meeting and runs approved read-only research via local CLI.</p></article>
-          <article class="cell"><h3 class="ae-h">FALSIFIER</h3><p>Demo passes while Vexa cannot connect, duplicates segments, or approval blocks on worker auth.</p></article>
+          <article class="cell"><h3 class="ae-h">CLAIM</h3><p>Standby works in a real Teams meeting through local Mac capture and runs approved read-only research via local CLI.</p></article>
+          <article class="cell"><h3 class="ae-h">FALSIFIER</h3><p>Demo passes while permissions fail, system audio is silent, transcription is stubbed, malicious transcript text mutates files, or approval blocks on worker auth.</p></article>
           <article class="cell"><h3 class="ae-h">EVIDENCE</h3><p><code>docs/evidence/real-meeting/</code> with logs, projection JSON, worker artifact, screenshots.</p></article>
         </div>
-        <p><strong>Commands:</strong> <code>./scripts/verify.sh</code>, <code>./scripts/verify-vexa-fixture.sh</code>, <code>./scripts/verify-worker-runner.sh</code>, and credential-gated <code>STANDBY_LIVE_TEAMS=1 ./scripts/verify-live-teams.sh</code>.</p>
+        <p><strong>Commands:</strong> <code>./scripts/verify.sh</code>, <code>./scripts/verify-local-capture-smoke.sh</code>, <code>./scripts/verify-real-transcriber-smoke.sh</code>, <code>./scripts/verify-local-transcript-fixture.sh</code>, <code>./scripts/verify-worker-runner.sh</code>, <code>./scripts/verify-worker-sandbox.sh</code>, <code>./scripts/verify-ui-states.sh</code>, and gated <code>STANDBY_LIVE_CAPTURE=1 ./scripts/verify-live-teams-local.sh</code>.</p>
       </section>
 
       <section class="review-grid" aria-label="Review and communication" style="margin-top: 2em">
         <article class="ae-plate">
           <p class="ae-plate-cap">REVIEW - useful attacks</p>
-          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Live claim.</span> Does any closeout say dogfood-ready without a live Teams smoke?</p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Live claim.</span> Does any closeout say dogfood-ready without a live Teams local-capture smoke?</p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Capture boundary.</span> Did Swift or provider code start owning product state?</p>
           <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Worker boundary.</span> Can approval return while the worker is still running?</p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Injection boundary.</span> Does malicious quoted evidence remain data, not worker instructions?</p>
           <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Permission boundary.</span> Can a read-only research worker write to repos or send messages?</p>
         </article>
         <article class="ae-plate">
           <p class="ae-plate-cap">COMMUNICATION - closeout language</p>
-          <p>Use exact readiness levels: fixture-ready, worker-ready, live Teams-ready, or dogfood-ready.</p>
-          <p>Report missing credentials, bot admission failures, and CLI auth failures as blockers, not residual polish.</p>
+          <p>Use exact readiness levels: fixture-ready, capture-ready, transcript-ready, worker-ready, live Teams-ready, or dogfood-ready.</p>
+          <p>Report permission denial, silent audio lanes, transcription failure, and CLI auth failures as blockers, not residual polish.</p>
           <p>Final closeout must include final git status and the repo gate named in <code>AGENTS.md</code>.</p>
         </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Source links" style="margin-top: 2em">
+        <h2 class="ae-h">SOURCE LINKS</h2>
+        <p><a href="https://docs.granola.ai/help-center/taking-notes/transcription">Granola transcription docs</a> - desktop system audio plus microphone pattern.</p>
+        <p><a href="https://www.granola.ai/blog/granola-microsoft-teams-bot-free-notes">Granola Teams guide</a> - Teams works through device audio setup, not a bot.</p>
+        <p><a href="https://github.com/EveryInc/monologue-toolkit">Monologue toolkit</a> - notes exposed to agents through API/CLI/skills.</p>
+        <p><a href="https://github.com/Zackriya-Solutions/meetily">Meetily</a> and <a href="https://www.useminutes.app/for-agents">Minutes</a> - local-first meeting data plus agent-facing surfaces.</p>
+        <p><a href="https://developer.apple.com/documentation/screencapturekit">Apple ScreenCaptureKit</a> and <a href="https://developer.apple.com/documentation/speech">Apple Speech</a> - native Mac capture/transcription foundations.</p>
       </section>
     </article>
   </main>

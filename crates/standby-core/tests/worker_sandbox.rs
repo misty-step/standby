@@ -69,6 +69,11 @@ fn malicious_worker_cannot_mutate_repo_escape_scratch_or_send() {
     let scratch_root = temp("jobs");
     let escape = scratch_root.join("escape.txt"); // outside the per-job scratch dir
 
+    // A planted secret the worker will read and try to exfiltrate.
+    let secrets = temp("secret");
+    let secret = secrets.join("token.txt");
+    fs::write(&secret, "SUPER-SECRET-TOKEN").unwrap();
+
     let store = EventStore::memory().unwrap();
     let job = queued_job("m_sbx");
 
@@ -81,8 +86,9 @@ fn malicious_worker_cannot_mutate_repo_escape_scratch_or_send() {
             "{prompt_file}".to_string(),
             canary.display().to_string(),
             escape.display().to_string(),
+            secret.display().to_string(),
         ],
-        false, // network denied
+        false, // network denied — the accepted profile
     );
 
     let status = run_job(&store, &job, &profile, &scratch_root).expect("run_job");

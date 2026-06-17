@@ -8,8 +8,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
-    AgentJobSpec, EventStore, MeetingProjection, ProposalEngine, ProposalStatus, WorkerProfile,
-    approve_proposal, default_scratch_root, demo_meeting_segments, event_types, run_job,
+    AgentJobSpec, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource, MeetingProjection,
+    ProposalEngine, ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root,
+    demo_meeting_segments, emit_job_failed, event_types, run_job,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -75,6 +76,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/meetings/{meeting_id}/demo", post(start_demo))
         .route("/api/meetings/{meeting_id}/capture/start", post(capture_start))
         .route("/api/meetings/{meeting_id}/capture/stop", post(capture_stop))
+        .route("/api/meetings/{meeting_id}/seed", post(seed_capture))
         .route("/api/meetings/{meeting_id}", get(meeting_projection))
         .route("/api/meetings/{meeting_id}/events", get(meeting_projection))
         .route("/api/proposals/{proposal_id}/approve", post(approve))
@@ -170,6 +172,36 @@ async fn capture_stop(
         .store
         .lock()
         .map_err(|_| ApiError::internal("lock store"))?;
+    Ok(Json(store.projection(&meeting_id)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct SeedRequest {
+    events: Vec<String>,
+}
+
+/// Test-only: ingest helper-shaped JSONL events through the real normalization
+/// path so UI-state verification can drive every source state without hardware.
+/// Disabled unless STANDBY_ENABLE_SEED=1.
+async fn seed_capture(
+    State(state): State<AppState>,
+    Path(meeting_id): Path<String>,
+    Json(request): Json<SeedRequest>,
+) -> ApiResult<Json<MeetingProjection>> {
+    if std::env::var("STANDBY_ENABLE_SEED").ok().as_deref() != Some("1") {
+        return Err(ApiError::forbidden(
+            "seed endpoint disabled; set STANDBY_ENABLE_SEED=1",
+        ));
+    }
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    for line in &request.events {
+        if let Some(event) = HelperEvent::parse_line(line) {
+            LocalMacAudioSource::ingest(&store, &meeting_id, event)?;
+        }
+    }
     Ok(Json(store.projection(&meeting_id)?))
 }
 
@@ -276,19 +308,33 @@ fn spawn_worker_loop(db_path: PathBuf, mut job_rx: mpsc::UnboundedReceiver<Queue
             let db_path = db_path.clone();
             let repo_root = repo_root.clone();
             let scratch_root = scratch_root.clone();
-            tokio::task::spawn_blocking(move || {
-                let store = match EventStore::open(&db_path) {
-                    Ok(store) => store,
-                    Err(err) => {
-                        tracing::error!("worker store open failed: {err}");
-                        return;
-                    }
-                };
-                let profile = WorkerProfile::by_id(&queued.profile_id, &repo_root);
-                if let Err(err) = run_job(&store, &queued.job, &profile, &scratch_root) {
-                    tracing::error!("worker run_job failed: {err}");
+            let job = queued.job;
+            let profile_id = queued.profile_id;
+            let fallback_job = job.clone();
+            let fallback_db = db_path.clone();
+
+            // Await each job so a panic or error in the runner can be turned into a
+            // visible terminal event instead of a silently lost job.
+            let result = tokio::task::spawn_blocking(move || -> Result<()> {
+                let store = EventStore::open(&db_path)?;
+                let profile = WorkerProfile::by_id(&profile_id, &repo_root);
+                run_job(&store, &job, &profile, &scratch_root)?;
+                Ok(())
+            })
+            .await;
+
+            let failure = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(err)) => Some(format!("worker error: {err}")),
+                Err(join_err) => Some(format!("worker panicked: {join_err}")),
+            };
+            if let Some(detail) = failure {
+                tracing::error!("{detail}");
+                if let Ok(store) = EventStore::open(&fallback_db) {
+                    let _ =
+                        emit_job_failed(&store, &fallback_job, JobFailureReason::Unknown, &detail);
                 }
-            });
+            }
         }
     });
 }
@@ -319,6 +365,13 @@ impl ApiError {
     fn not_found(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
+            message: message.into(),
+        }
+    }
+
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
             message: message.into(),
         }
     }

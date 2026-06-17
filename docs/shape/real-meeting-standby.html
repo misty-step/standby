@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standby Real Meeting Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    :root {
+      --ae-accent: #2251d1;
+      --ae-accent-dark: #93adff;
+    }
+
+    .plan-wide .ae-bar,
+    .plan-wide .ae-stage {
+      width: min(94rem, 100% - 4rem);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(26em, 0.72fr);
+      gap: 3em;
+      align-items: end;
+    }
+
+    .kicker {
+      display: block;
+      margin-bottom: 0.8em;
+    }
+
+    .rule {
+      border-top: 1px solid var(--ae-line);
+      margin: 1.35em 0;
+    }
+
+    .grid-2,
+    .grid-3,
+    .grid-4,
+    .grid-5 {
+      display: grid;
+      gap: 1px;
+      background: var(--ae-line);
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+    .cell {
+      min-width: 0;
+      background: var(--ae-surface);
+      padding: 1.2em 1.35em;
+    }
+
+    .wash {
+      background: var(--ae-wash);
+    }
+
+    .phase {
+      display: grid;
+      grid-template-columns: 9em minmax(0, 1fr) minmax(17em, 0.7fr);
+      gap: 1.3em;
+      border-top: 1px solid var(--ae-line);
+      padding-top: 1em;
+      margin-top: 1em;
+    }
+
+    .phase:first-child {
+      border-top: 0;
+      margin-top: 0;
+      padding-top: 0;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    .status {
+      display: inline-flex;
+      gap: 0.45em;
+      align-items: baseline;
+    }
+
+    .status svg {
+      transform: translateY(0.15em);
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 2em;
+    }
+
+    code {
+      white-space: nowrap;
+    }
+
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar,
+      .plan-wide .ae-stage {
+        width: min(100% - 2rem, 94rem);
+      }
+
+      .hero,
+      .grid-2,
+      .grid-3,
+      .grid-4,
+      .grid-5,
+      .phase,
+      .review-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<svg aria-hidden="true" style="display: none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-check" viewBox="0 0 24 24">
+    <path d="M20 6 9 17l-5-5"></path>
+  </symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24">
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path>
+    <path d="M12 9v4"></path>
+    <path d="M12 17h.01"></path>
+  </symbol>
+  <symbol id="i-x" viewBox="0 0 24 24">
+    <path d="M18 6 6 18"></path>
+    <path d="m6 6 12 12"></path>
+  </symbol>
+</svg>
+
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="../context-packets/real-meeting-standby.md">STANDBY / REAL MEETING HANDOFF</a>
+    <p class="ae-chrome">research + shape plan for /deliver</p>
+  </header>
+
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero" aria-label="Plan contract">
+        <div>
+          <p class="ae-chrome kicker">PREMISE sha256:0c05cb137e5f9e87a67a5a3c7bd230e7388a0b81bb3d0284327da85fd9d753fa</p>
+          <h1 class="ae-strong">Make Standby work in a real Teams meeting, then route approved work to a real local agent.</h1>
+          <p class="ae-lede">Chosen design: Vexa Teams transcript adapter first, durable event replay, deterministic approval, and an out-of-request local subprocess worker for read-only research. Native Mac any-call capture and mutation-capable coding workers follow after the first live loop is proven.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">CHOSEN DESIGN</h2>
+          <p><span class="status"><svg class="ae-icon ae-ok"><use href="#i-check"></use></svg> Vexa Teams ingest + local WorkerRunner.</span></p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> First worker is read-only research.</span></p>
+          <div class="rule"></div>
+          <h2 class="ae-h">PROOF SURFACE</h2>
+          <p><code>verify-vexa-fixture.sh</code>, <code>verify-worker-runner.sh</code>, and credential-gated <code>verify-live-teams.sh</code>.</p>
+          <div class="rule"></div>
+          <p class="ae-dim">Stop if live Teams credentials or a joinable test meeting are unavailable and dogfood readiness is expected.</p>
+        </aside>
+      </section>
+
+      <section class="grid-5" aria-label="Executive contract" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">STANDARDS</h2>
+          <p>Real capture, real worker, durable events, explicit failure states, and no transcript-to-mutation path.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">ACCEPTANCE</h2>
+          <p>Live Teams transcript creates proposal; approved card launches a real local CLI and returns an artifact or failure receipt.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">VERIFY</h2>
+          <p>Fixture replay, live Teams smoke, worker smoke, browser status check, and existing repo gate.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">COMMUNICATE</h2>
+          <p>Report whether the result is fixture-ready, worker-ready, or dogfood-ready. Do not collapse these states.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">STOP IF</h2>
+          <p>Vexa cannot join, CLI auth blocks, approval hangs, or UI cannot show failure as a first-class state.</p>
+        </article>
+      </section>
+
+      <section class="grid-3" aria-label="Current change proof" style="margin-top: 1px">
+        <article class="cell">
+          <h2 class="ae-h">CURRENT STATE</h2>
+          <p>Demo route seeds transcript spans; approval calls <code>MockResearchWorker</code>; UI auto-starts demo and labels it live.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">CHANGE SHAPE</h2>
+          <p>Add <code>TranscriptSource</code> and <code>WorkerRunner</code> modules. Keep provider and CLI details behind adapters.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">LIVE RISK</h2>
+          <p>Graph transcript APIs are post-meeting; Teams raw media bots are Windows/.NET-heavy and not the first product path.</p>
+        </article>
+      </section>
+
+      <section class="grid-2" aria-label="Scope and anchors" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">SCOPE</h2>
+          <p><strong>Goal:</strong> real Teams transcript input and real approved read-only research output.</p>
+          <p><strong>Non-goals:</strong> native Mac capture, Teams media bot, Graph post-meeting ingestion, repo mutation, Slack/email sends.</p>
+          <p><strong>Invariant:</strong> transcript text is quoted evidence, never executable instruction.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">REPO ANCHORS</h2>
+          <p><a href="../../AGENTS.md">AGENTS.md</a> - event log and approval safety boundaries.</p>
+          <p><a href="../../crates/standby-core/src/domain.rs">domain.rs</a> - schemas for transcript, proposal, job, artifact.</p>
+          <p><a href="../../crates/standby-core/src/worker.rs">worker.rs</a> - remove mock from real approval path.</p>
+          <p><a href="../../crates/standbyd/src/main.rs">main.rs</a> - approval route and new ingest routes.</p>
+          <p><a href="../../ui/src/main.tsx">main.tsx</a> - source/job status must be honest.</p>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Execution plan" style="margin-top: 2em">
+        <h2 class="ae-h">EXECUTION PLAN</h2>
+        <div class="phase">
+          <strong class="ae-accent">1 proof loop</strong>
+          <p>Add replayable Vexa fixture ingestion and local worker-runner smoke before replacing demo behavior.</p>
+          <p class="ae-dim">Evidence: scripts, fixture payloads, event projection JSON.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">2 capture</strong>
+          <p>Implement Vexa Teams source: create bot, bootstrap transcript, subscribe over WebSocket, dedupe, append events.</p>
+          <p class="ae-dim">Evidence: fixture replay and live Teams smoke when credentials exist.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">3 worker</strong>
+          <p>Change approval to enqueue; run a separate local subprocess worker with timeout, stdout/stderr receipt, artifact file.</p>
+          <p class="ae-dim">Evidence: nonblocking approval timing and completed or failed job events.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">4 interface</strong>
+          <p>Remove normal-route auto-demo. Render source status, job status, failures, and artifact links from projection.</p>
+          <p class="ae-dim">Evidence: browser screenshots for connecting, live, failed, running, complete.</p>
+        </div>
+      </section>
+
+      <section class="grid-2" aria-label="Alternatives and risks" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ALTERNATIVES</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead>
+                <tr><th>option</th><th>why it helps</th><th>failure</th><th>verdict</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="ae-item">Vexa first</td><td>Concrete Teams bot and WebSocket transcript API.</td><td>Vendor dependency and bot admission risk.</td><td>choose</td></tr>
+                <tr><td class="ae-item">Microsoft media bot</td><td>Official raw media path.</td><td>Windows/.NET, specialized scenarios, slower to ship.</td><td>defer</td></tr>
+                <tr><td class="ae-item">Graph transcripts</td><td>Official post-meeting artifacts.</td><td>Not live; insights can be delayed.</td><td>reject for live</td></tr>
+                <tr><td class="ae-item">Mac capture first</td><td>Ultimate any-call direction.</td><td>Permissions and transcription complexity delay Teams dogfood.</td><td>second slice</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">RISKS</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead>
+                <tr><th>risk</th><th>mitigation</th><th>owner</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Vexa bot cannot join Teams.</td><td>Live smoke fails closed; report fixture-ready only.</td><td>agent + operator</td></tr>
+                <tr><td>Worker CLI prompts for auth.</td><td>Timeout, stderr receipt, visible <code>agent_job.failed</code>.</td><td>agent</td></tr>
+                <tr><td>Proposal spam from real transcript noise.</td><td>Fixture tests require quoted evidence and low-noise output.</td><td>agent</td></tr>
+                <tr><td>Future coding worker mutates files unexpectedly.</td><td>Keep first worker read-only; require ADR and permission tests for mutation.</td><td>agent</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Verification topology" style="margin-top: 2em">
+        <h2 class="ae-h">VERIFICATION SYSTEM</h2>
+        <div class="grid-3" style="margin-top: 1em">
+          <article class="cell"><h3 class="ae-h">CLAIM</h3><p>Standby works in a real Teams meeting and runs approved read-only research via local CLI.</p></article>
+          <article class="cell"><h3 class="ae-h">FALSIFIER</h3><p>Demo passes while Vexa cannot connect, duplicates segments, or approval blocks on worker auth.</p></article>
+          <article class="cell"><h3 class="ae-h">EVIDENCE</h3><p><code>docs/evidence/real-meeting/</code> with logs, projection JSON, worker artifact, screenshots.</p></article>
+        </div>
+        <p><strong>Commands:</strong> <code>./scripts/verify.sh</code>, <code>./scripts/verify-vexa-fixture.sh</code>, <code>./scripts/verify-worker-runner.sh</code>, and credential-gated <code>STANDBY_LIVE_TEAMS=1 ./scripts/verify-live-teams.sh</code>.</p>
+      </section>
+
+      <section class="review-grid" aria-label="Review and communication" style="margin-top: 2em">
+        <article class="ae-plate">
+          <p class="ae-plate-cap">REVIEW - useful attacks</p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Live claim.</span> Does any closeout say dogfood-ready without a live Teams smoke?</p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Worker boundary.</span> Can approval return while the worker is still running?</p>
+          <p><span class="status"><svg class="ae-icon ae-warn"><use href="#i-alert"></use></svg> Permission boundary.</span> Can a read-only research worker write to repos or send messages?</p>
+        </article>
+        <article class="ae-plate">
+          <p class="ae-plate-cap">COMMUNICATION - closeout language</p>
+          <p>Use exact readiness levels: fixture-ready, worker-ready, live Teams-ready, or dogfood-ready.</p>
+          <p>Report missing credentials, bot admission failures, and CLI auth failures as blockers, not residual polish.</p>
+          <p>Final closeout must include final git status and the repo gate named in <code>AGENTS.md</code>.</p>
+        </article>
+      </section>
+    </article>
+  </main>
+
+  <footer class="ae-bar">
+    <p class="ae-foot">Generated from direct HTML shaping. Sources: <a href="../research/real-meeting-capture-and-workers.md">research memo</a> and <a href="../context-packets/real-meeting-standby.md">context packet</a>.</p>
+  </footer>
+</div>
+</body>
+</html>

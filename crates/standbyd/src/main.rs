@@ -46,7 +46,12 @@ struct ApproveRequest {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            // Default to a useful level so an operator sees capture/worker failures
+            // without setting RUST_LOG; still overridable via RUST_LOG.
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("standbyd=info,standby_core=warn")),
+        )
         .init();
 
     let db_path = db_path();
@@ -318,9 +323,15 @@ fn repo_root() -> PathBuf {
 }
 
 fn scratch_root() -> PathBuf {
-    std::env::var("STANDBY_JOBS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| default_scratch_root())
+    if let Ok(dir) = std::env::var("STANDBY_JOBS_DIR") {
+        return PathBuf::from(dir);
+    }
+    // Co-locate worker scratch with the event ledger so they share a root
+    // regardless of the daemon's working directory.
+    match db_path().parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join("jobs"),
+        _ => default_scratch_root(),
+    }
 }
 
 /// Drain queued jobs and run each out-of-request. Every job opens its own SQLite

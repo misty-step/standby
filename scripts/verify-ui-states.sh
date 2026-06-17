@@ -21,7 +21,15 @@ export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
 cargo run -p standbyd >/tmp/standby-ui.log 2>&1 &
 PID=$!
-cleanup() { kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS"; }
+cleanup() {
+  for p in "$PID" "${PID2:-}"; do
+    if [ -n "$p" ]; then kill "$p" 2>/dev/null || true; fi
+  done
+  rm -f "$DB" "$DB"-wal "$DB"-shm
+  if [ -n "${DB2:-}" ]; then rm -f "$DB2" "$DB2"-wal "$DB2"-shm; fi
+  rm -rf "$JOBS"
+  if [ -n "${JOBS2:-}" ]; then rm -rf "$JOBS2"; fi
+}
 trap cleanup EXIT
 
 for _ in $(seq 1 80); do
@@ -87,5 +95,35 @@ done
 [ "$DONE" = 1 ] || { echo "FAIL: worker did not produce an artifact"; exit 1; }
 shot uitest-demo completed "&mode=demo"
 echo "  job completed with artifact"
+
+echo "5) a worker failure renders a receipt, not a spinner"
+# A second daemon whose local worker script does not exist, so an approved job
+# fails visibly (covers the worker-failed UI state the Oracle names).
+DB2="$(mktemp -t standby-ui2.XXXXXX).db"
+JOBS2="$(mktemp -d -t standby-ui2-jobs.XXXXXX)"
+ADDR2="127.0.0.1:4325"
+STANDBY_DB="$DB2" STANDBY_ADDR="$ADDR2" STANDBY_JOBS_DIR="$JOBS2" STANDBY_ENABLE_SEED=1 \
+  STANDBY_WORKER_PROFILE=local-research STANDBY_LOCAL_WORKER_SCRIPT=/nonexistent/worker.sh \
+  cargo run -p standbyd >/tmp/standby-ui2.log 2>&1 &
+PID2=$!
+for _ in $(seq 1 80); do curl -fsS "http://$ADDR2/health" >/dev/null 2>&1 && break; sleep 0.25; done
+WSEED="$(node -e 'process.stdout.write(JSON.stringify({events:process.argv.slice(1)}))' \
+  '{"type":"source.started","mode":"mic+system"}' \
+  '{"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"Can someone research what already exists in the market?"}' \
+  '{"type":"segment.final","lane":"microphone","speaker":"me","text":"Yes, do a prior art sweep on existing solutions."}')"
+curl -fsS -H 'content-type: application/json' -d "$WSEED" -X POST "http://$ADDR2/api/meetings/wfail/seed" >/dev/null
+WPROP="$(curl -fsS "http://$ADDR2/api/meetings/wfail" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((p.proposals[0]||{}).id||"")')"
+[ -n "$WPROP" ] || { echo "FAIL: worker-fail setup produced no proposal"; cat /tmp/standby-ui2.log; exit 1; }
+curl -fsS -H 'content-type: application/json' -d '{"approved_by":"ui"}' -X POST "http://$ADDR2/api/proposals/$WPROP/approve" >/dev/null
+WF=0
+for _ in $(seq 1 80); do
+  if curl -fsS "http://$ADDR2/api/meetings/wfail" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(p.jobs.some(j=>j.status==="failed")?0:1)'; then WF=1; break; fi
+  sleep 0.25
+done
+[ "$WF" = 1 ] || { echo "FAIL: worker did not fail visibly"; cat /tmp/standby-ui2.log; exit 1; }
+# Taller window so the failed job card (below the transcript) is in frame.
+"$CHROME" --headless=new --disable-gpu --hide-scrollbars --window-size=1280,1400 --virtual-time-budget=4500 \
+  --screenshot="$EVIDENCE/ui-worker-failed.png" "http://$ADDR2/?meeting=wfail" >/dev/null 2>&1 || echo "  (screenshot skipped)"
+echo "  worker-failed renders with reason + receipt"
 
 echo "verify-ui-states passed; screenshots in $EVIDENCE/"

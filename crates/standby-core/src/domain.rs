@@ -363,12 +363,17 @@ pub struct MeetingProjection {
 }
 
 pub fn new_id(prefix: &str) -> String {
+    // Globally unique across daemon restarts: the per-process counter resets to 1
+    // on restart, so millisecond + counter alone could collide between two
+    // meetings and make a by-id lookup resolve the wrong one. Nanoseconds + pid
+    // make a collision practically impossible.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
+        .as_nanos();
     let counter = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{prefix}_{now:x}_{counter:x}")
+    let pid = std::process::id();
+    format!("{prefix}_{now:x}_{pid:x}_{counter:x}")
 }
 
 pub fn now_rfc3339ish() -> String {

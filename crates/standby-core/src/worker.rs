@@ -106,7 +106,12 @@ impl WorkerProfile {
     /// only honored when `STANDBY_ALLOW_NETWORK_WORKER=1` is set; otherwise any
     /// id falls back to the safe local profile.
     pub fn by_id(id: &str, repo_root: &Path) -> Self {
-        let local = || Self::local_research(&repo_root.join("scripts/workers/local-research-worker.sh"));
+        let local = || {
+            let script = std::env::var("STANDBY_LOCAL_WORKER_SCRIPT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| repo_root.join("scripts/workers/local-research-worker.sh"));
+            Self::local_research(&script)
+        };
         let network_workers_enabled =
             std::env::var("STANDBY_ALLOW_NETWORK_WORKER").ok().as_deref() == Some("1");
         match id {
@@ -404,10 +409,11 @@ pub fn run_job(
     let stderr_tail = read_tail(&stderr_path, 600);
     if status.success() {
         let artifact_path = job_dir.join("artifact.md");
+        // Keep the head of an artifact (its title/intro), not the trailing bytes.
         let summary = if artifact_path.exists() {
-            read_tail(&artifact_path, 600)
+            read_head(&artifact_path, 600)
         } else {
-            read_tail(&stdout_path, 600)
+            read_head(&stdout_path, 600)
         };
         let uri = if artifact_path.exists() {
             format!("file://{}", artifact_path.display())
@@ -500,7 +506,9 @@ pub fn emit_job_failed(
 
 fn classify_failure(stderr_tail: &str) -> JobFailureReason {
     let lower = stderr_tail.to_lowercase();
-    if lower.contains("command not found") || lower.contains("no such file") {
+    if lower.contains("operation not permitted") || lower.contains("sandbox") {
+        JobFailureReason::SandboxViolation
+    } else if lower.contains("command not found") || lower.contains("no such file") {
         JobFailureReason::CliNotFound
     } else if lower.contains("auth")
         || lower.contains("login")
@@ -516,6 +524,19 @@ fn classify_failure(stderr_tail: &str) -> JobFailureReason {
 fn read_tail(path: &Path, max_bytes: usize) -> String {
     let content = fs::read_to_string(path).unwrap_or_default();
     truncate(&content, max_bytes)
+}
+
+fn read_head(path: &Path, max_bytes: usize) -> String {
+    let content = fs::read_to_string(path).unwrap_or_default();
+    let trimmed = content.trim();
+    if trimmed.len() <= max_bytes {
+        return trimmed.to_string();
+    }
+    let mut idx = max_bytes;
+    while idx > 0 && !trimmed.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    format!("{}…", &trimmed[..idx])
 }
 
 fn truncate(text: &str, max: usize) -> String {

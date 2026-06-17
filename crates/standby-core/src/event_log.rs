@@ -154,7 +154,15 @@ impl EventStore {
                 }
                 event_types::SEGMENT_FINAL => {
                     let segment: TranscriptSegment = decode(&event.payload_json)?;
-                    partial = None;
+                    // Only clear the in-flight partial if it belongs to the same
+                    // speaker/lane, so a final on one lane doesn't wipe another
+                    // lane's live partial.
+                    if partial
+                        .as_ref()
+                        .is_some_and(|current| current.speaker == segment.speaker)
+                    {
+                        partial = None;
+                    }
                     if matches!(source.status, SourceStatus::Capturing) {
                         source.status = SourceStatus::Transcribing;
                     }
@@ -169,12 +177,16 @@ impl EventStore {
                         detail: failed.detail,
                     });
                     source.status = SourceStatus::Failed;
+                    // No in-flight utterance survives a failure.
+                    partial = None;
                 }
                 event_types::SOURCE_STOPPED => {
                     source.stopped = true;
                     if source.status != SourceStatus::Failed {
                         source.status = SourceStatus::Stopped;
                     }
+                    // No ghost partial under a stopped meeting.
+                    partial = None;
                 }
                 event_types::PROPOSAL_CREATED
                 | event_types::PROPOSAL_APPROVED
@@ -347,8 +359,8 @@ mod tests {
     use super::*;
     use crate::{
         AudioLane, AudioLevel, CaptureMode, ProposalKind, ProposalStatus, SourceFailed,
-        SourceFailureReason, SourceStarted, SourceStatus, TranscriptSourceKind, WorkerKind,
-        demo_segments,
+        SourceFailureReason, SourceStarted, SourceStatus, SourceStopped, TranscriptSourceKind,
+        WorkerKind, demo_segments,
     };
 
     fn seg(
@@ -492,6 +504,51 @@ mod tests {
         let projection = store.projection(meeting).unwrap();
         assert_eq!(projection.source.status, SourceStatus::Demo);
         assert!(!projection.source.started);
+    }
+
+    #[test]
+    fn partial_is_cleared_when_capture_stops() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_ghost";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::Mic,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::SEGMENT_PARTIAL,
+                None,
+                None,
+                &seg(meeting, "p1", "half a senten", false, TranscriptSourceKind::LocalMac),
+            )
+            .unwrap();
+        assert!(store.projection(meeting).unwrap().partial.is_some());
+
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STOPPED,
+                None,
+                None,
+                &SourceStopped {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                },
+            )
+            .unwrap();
+        let projection = store.projection(meeting).unwrap();
+        assert!(projection.partial.is_none(), "no ghost partial under a stopped meeting");
+        assert_eq!(projection.source.status, SourceStatus::Stopped);
     }
 
     #[test]

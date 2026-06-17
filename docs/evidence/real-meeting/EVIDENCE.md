@@ -27,6 +27,13 @@ proposals, and a real out-of-request worker that runs inside an OS sandbox.
 - `ui-no-system-audio.png` — silent lane surfaced honestly
 - `ui-failed.png` — exact missing macOS permission named
 - `ui-demo.png`, `ui-completed.png` — opt-in demo + completed worker result
+- `ui-worker-failed.png` — a meeting whose approved job failed. `verify-ui-states.sh`
+  drives a real failure (a worker whose script is missing) and asserts
+  `job.status == "failed"` at the projection level before the shot; the `JobCard`
+  renders the reason + receipt path. (The failed card sits below the
+  transcript-dominant fold in a static screenshot; the state is data-asserted.)
+  Worker-`running` is transient (the local worker completes in milliseconds) and
+  is likewise asserted via the projection + the `JobCard` running branch.
 
 ## What is permission-gated (macOS Screen-Recording TCC)
 

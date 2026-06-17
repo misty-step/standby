@@ -5,7 +5,10 @@
 
 use crate::AppState;
 use anyhow::{Context, Result};
-use standby_core::{CaptureMode, HelperEvent, LocalMacAudioSource, Meeting, event_types};
+use standby_core::{
+    CaptureMode, HelperEvent, LocalMacAudioSource, Meeting, SourceFailed, SourceFailureReason,
+    TranscriptSourceKind, event_types,
+};
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -34,6 +37,18 @@ pub async fn start_capture(state: AppState, meeting_id: String, mode: String) ->
         return Ok(());
     }
 
+    let path = helper_path();
+    let mut child = Command::new(&path)
+        .arg("capture")
+        .arg("--mode")
+        .arg(&mode)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .with_context(|| format!("spawn capture helper at {}", path.display()))?;
+
+    // Record meeting.started only after the helper is actually running, so a
+    // spawn failure leaves the meeting Idle, not a permanent WaitingPermission.
     {
         let store = state.store.lock().expect("store lock");
         store.append(
@@ -48,16 +63,6 @@ pub async fn start_capture(state: AppState, meeting_id: String, mode: String) ->
             },
         )?;
     }
-
-    let path = helper_path();
-    let mut child = Command::new(&path)
-        .arg("capture")
-        .arg("--mode")
-        .arg(&mode)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| format!("spawn capture helper at {}", path.display()))?;
 
     let stdout = child.stdout.take().context("capture helper stdout")?;
     if let Some(pid) = child.id() {
@@ -82,7 +87,39 @@ pub async fn start_capture(state: AppState, meeting_id: String, mode: String) ->
                 tracing::warn!("capture ingest error for {meeting}: {err}");
             }
         }
-        let _ = child.wait().await;
+        // Bound the reap so a helper that closes stdout but doesn't exit can't
+        // wedge this task or leak the captures entry.
+        if tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            .await
+            .is_err()
+        {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+        // If the helper ended without a clean stop or an honest failure, it
+        // crashed — record a terminal event so the UI never sits on a stale
+        // "capturing" state with no explanation.
+        {
+            let store = store.lock().expect("store lock");
+            if let Ok(projection) = store.projection(&meeting) {
+                let source = &projection.source;
+                if source.started && !source.stopped && source.failure.is_none() {
+                    let _ = store.append(
+                        &meeting,
+                        event_types::SOURCE_FAILED,
+                        Some(&meeting),
+                        None,
+                        &SourceFailed {
+                            meeting_id: meeting.clone(),
+                            source: TranscriptSourceKind::LocalMac,
+                            reason: SourceFailureReason::HelperCrashed,
+                            lane: None,
+                            detail: Some("capture helper exited unexpectedly".to_string()),
+                        },
+                    );
+                }
+            }
+        }
         captures.lock().expect("captures lock").remove(&meeting);
     });
 

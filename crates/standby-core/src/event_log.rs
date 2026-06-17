@@ -18,6 +18,11 @@ pub struct EventStore {
 impl EventStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let connection = Connection::open(path).context("open sqlite event store")?;
+        // WAL + a busy timeout let the daemon's HTTP connection and the worker
+        // loop's own connection read and write the same file concurrently.
+        connection
+            .execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+            .context("configure sqlite concurrency")?;
         let store = Self { connection };
         store.migrate()?;
         Ok(store)

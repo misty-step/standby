@@ -8,13 +8,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
-    EventStore, MeetingProjection, MockResearchWorker, ProposalEngine, ProposalStatus,
-    demo_meeting_segments,
+    AgentJobSpec, EventStore, MeetingProjection, ProposalEngine, ProposalStatus, WorkerProfile,
+    approve_proposal, default_scratch_root, demo_meeting_segments, event_types, run_job,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -26,6 +27,13 @@ pub(crate) struct AppState {
     pub(crate) store: Arc<Mutex<EventStore>>,
     /// Meeting id -> running capture helper pid, for stop signalling.
     pub(crate) captures: Arc<Mutex<HashMap<String, u32>>>,
+    /// Out-of-request queue: approval enqueues here; the worker loop drains it.
+    pub(crate) job_tx: mpsc::UnboundedSender<QueuedJob>,
+}
+
+pub(crate) struct QueuedJob {
+    pub(crate) job: AgentJobSpec,
+    pub(crate) profile_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,10 +48,14 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    let db_path = db_path();
+    let (job_tx, job_rx) = mpsc::unbounded_channel::<QueuedJob>();
     let state = AppState {
-        store: Arc::new(Mutex::new(open_store()?)),
+        store: Arc::new(Mutex::new(open_store(&db_path)?)),
         captures: Arc::new(Mutex::new(HashMap::new())),
+        job_tx,
     };
+    spawn_worker_loop(db_path, job_rx);
 
     let app = api_router(state).fallback_service(ServeDir::new(ui_dist_path()));
     let addr: SocketAddr = std::env::var("STANDBY_ADDR")
@@ -87,11 +99,11 @@ async fn start_demo(
         .store
         .lock()
         .map_err(|_| ApiError::internal("lock store"))?;
-    if !store.has_event_type(&meeting_id, "transcript.segment.final")? {
+    if !store.has_event_type(&meeting_id, event_types::SEGMENT_FINAL)? {
         for segment in demo_meeting_segments(&meeting_id) {
             store.append(
                 &meeting_id,
-                "transcript.segment.final",
+                event_types::SEGMENT_FINAL,
                 Some(&meeting_id),
                 None,
                 &segment,
@@ -100,7 +112,7 @@ async fn start_demo(
     }
 
     let projection = store.projection(&meeting_id)?;
-    if !store.has_event_type(&meeting_id, "proposal.created")? {
+    if !store.has_event_type(&meeting_id, event_types::PROPOSAL_CREATED)? {
         if let Some(proposal) = ProposalEngine::detect_research_proposal(
             &meeting_id,
             &projection.transcript,
@@ -108,7 +120,7 @@ async fn start_demo(
         ) {
             store.append(
                 &meeting_id,
-                "proposal.created",
+                event_types::PROPOSAL_CREATED,
                 Some(&proposal.id),
                 None,
                 &proposal,
@@ -166,6 +178,9 @@ async fn approve(
     Path(proposal_id): Path<String>,
     Json(request): Json<ApproveRequest>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let profile_id =
+        std::env::var("STANDBY_WORKER_PROFILE").unwrap_or_else(|_| "local-research".to_string());
+
     let store = state
         .store
         .lock()
@@ -174,16 +189,30 @@ async fn approve(
         .find_latest_proposal(&proposal_id)?
         .ok_or_else(|| ApiError::not_found(format!("proposal {proposal_id}")))?;
 
-    if proposal.status != ProposalStatus::Approved {
-        MockResearchWorker::approve_and_run(
-            &store,
-            &proposal,
-            request.approved_by.as_deref().unwrap_or("Phaedrus"),
-            request.prompt,
-        )?;
+    // Already approved: return current state without re-enqueuing.
+    if proposal.status == ProposalStatus::Approved {
+        return Ok(Json(store.projection(&proposal.meeting_id)?));
     }
 
-    Ok(Json(store.projection(&proposal.meeting_id)?))
+    // Deterministic, server-owned: persist proposal.approved + a queued job, then
+    // return immediately. The worker loop runs the job out-of-request.
+    let job = approve_proposal(
+        &store,
+        &proposal,
+        request.approved_by.as_deref().unwrap_or("Phaedrus"),
+        request.prompt,
+        &profile_id,
+    )?;
+    let meeting_id = proposal.meeting_id.clone();
+    drop(store);
+
+    let _ = state.job_tx.send(QueuedJob { job, profile_id });
+
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    Ok(Json(store.projection(&meeting_id)?))
 }
 
 async fn ignore(
@@ -200,7 +229,7 @@ async fn ignore(
     proposal.status = ProposalStatus::Ignored;
     store.append(
         &proposal.meeting_id,
-        "proposal.ignored",
+        event_types::PROPOSAL_IGNORED,
         Some(&proposal.id),
         None,
         &proposal,
@@ -209,14 +238,59 @@ async fn ignore(
     Ok(Json(store.projection(&proposal.meeting_id)?))
 }
 
-fn open_store() -> Result<EventStore> {
-    let path = std::env::var("STANDBY_DB")
+fn db_path() -> PathBuf {
+    std::env::var("STANDBY_DB")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(".standby/standby.db"));
+        .unwrap_or_else(|_| PathBuf::from(".standby/standby.db"))
+}
+
+fn open_store(path: &FsPath) -> Result<EventStore> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).context("create standby data dir")?;
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).context("create standby data dir")?;
+        }
     }
     EventStore::open(path)
+}
+
+fn repo_root() -> PathBuf {
+    FsPath::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn scratch_root() -> PathBuf {
+    std::env::var("STANDBY_JOBS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| default_scratch_root())
+}
+
+/// Drain queued jobs and run each out-of-request. Every job opens its own SQLite
+/// connection (WAL) so worker writes never block HTTP projection reads.
+fn spawn_worker_loop(db_path: PathBuf, mut job_rx: mpsc::UnboundedReceiver<QueuedJob>) {
+    let repo_root = repo_root();
+    let scratch_root = scratch_root();
+    tokio::spawn(async move {
+        while let Some(queued) = job_rx.recv().await {
+            let db_path = db_path.clone();
+            let repo_root = repo_root.clone();
+            let scratch_root = scratch_root.clone();
+            tokio::task::spawn_blocking(move || {
+                let store = match EventStore::open(&db_path) {
+                    Ok(store) => store,
+                    Err(err) => {
+                        tracing::error!("worker store open failed: {err}");
+                        return;
+                    }
+                };
+                let profile = WorkerProfile::by_id(&queued.profile_id, &repo_root);
+                if let Err(err) = run_job(&store, &queued.job, &profile, &scratch_root) {
+                    tracing::error!("worker run_job failed: {err}");
+                }
+            });
+        }
+    });
 }
 
 fn ui_dist_path() -> PathBuf {

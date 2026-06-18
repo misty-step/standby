@@ -59,6 +59,11 @@ import Synchronization
 
 let stdoutQueue = DispatchQueue(label: "standby.capture.stdout")
 
+/// Optional mirror of stdout to a file, set by `--out <path>`. Used to capture
+/// events when the helper is launched via LaunchServices (`open`), which detaches
+/// stdout — needed to test the TCC responsible-process (own-process) path.
+nonisolated(unsafe) var outFile: FileHandle?
+
 /// Non-blocking: serialize the JSON line onto the stdout queue and return. Safe to
 /// call from any non-realtime context. NEVER call from an audio render thread.
 func emit(_ object: [String: Any]) {
@@ -66,6 +71,10 @@ func emit(_ object: [String: Any]) {
     stdoutQueue.async {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data([0x0a]))
+        if let outFile {
+            outFile.write(data)
+            outFile.write(Data([0x0a]))
+        }
     }
 }
 
@@ -440,16 +449,31 @@ final class SystemAudioTap {
         //    adding the default output as a main sub-device prevented the IOProc from
         //    ever firing on this machine. A tap-only aggregate also sidesteps
         //    hardware/tap clock drift entirely (there is no second clock to drift).
+        // Aggregate config matched verbatim to insidegui/AudioCap (the working
+        // reference): a REAL output device as the main sub-device (clock) — without
+        // it the IOProc never delivers real audio — Bool flag values (NOT CFNumber),
+        // drift compensation on the sub-TAP only, and tap auto-start.
+        let outputUID = Self.defaultOutputDeviceUID()
         let aggUID = "com.standby.capture.aggregate.\(description.uuid.uuidString)"
-        let aggDescription: [String: Any] = [
+        var aggDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey as String: "StandbyCaptureAggregate",
             kAudioAggregateDeviceUIDKey as String: aggUID,
             kAudioAggregateDeviceIsPrivateKey as String: true,
-            kAudioAggregateDeviceTapAutoStartKey as String: false,
+            kAudioAggregateDeviceIsStackedKey as String: false,
+            kAudioAggregateDeviceTapAutoStartKey as String: true,
             kAudioAggregateDeviceTapListKey as String: [
-                [kAudioSubTapUIDKey as String: description.uuid.uuidString]
+                [
+                    kAudioSubTapDriftCompensationKey as String: true,
+                    kAudioSubTapUIDKey as String: description.uuid.uuidString,
+                ]
             ],
         ]
+        if let outputUID {
+            aggDescription[kAudioAggregateDeviceMainSubDeviceKey as String] = outputUID
+            aggDescription[kAudioAggregateDeviceSubDeviceListKey as String] = [
+                [kAudioSubDeviceUIDKey as String: outputUID]
+            ]
+        }
 
         var newAgg = AudioObjectID(kAudioObjectUnknown)
         let aggStatus = AudioHardwareCreateAggregateDevice(aggDescription as CFDictionary, &newAgg)
@@ -544,6 +568,34 @@ final class SystemAudioTap {
             throw TapError.setupFailed(status, "kAudioTapPropertyFormat")
         }
         return format
+    }
+
+    /// UID of the default SYSTEM output device — used as the aggregate's main
+    /// sub-device (clock). Per insidegui/AudioCap, this is the SYSTEM output
+    /// (`kAudioHardwarePropertyDefaultSystemOutputDevice`), NOT the default output
+    /// device — which may be a virtual device (e.g. Microsoft Teams) that won't
+    /// clock the aggregate, leaving the IOProc never firing.
+    static func defaultOutputDeviceUID() -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+            device != kAudioObjectUnknown
+        else { return nil }
+        var uidAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var uid: Unmanaged<CFString>?
+        var uidSize = UInt32(MemoryLayout<UnsafeMutableRawPointer?>.size)
+        let status = AudioObjectGetPropertyData(device, &uidAddress, 0, nil, &uidSize, &uid)
+        guard status == noErr, let cf = uid?.takeRetainedValue() else { return nil }
+        return cf as String
     }
 
     /// Destroy any private aggregate devices we created in a previous run (matched
@@ -710,6 +762,11 @@ guard let subcommand = arguments.first else {
 }
 let localeId = argValue("--locale", in: arguments) ?? "en-US"
 let locale = Locale(identifier: localeId)
+
+if let outPath = argValue("--out", in: arguments) {
+    FileManager.default.createFile(atPath: outPath, contents: nil)
+    outFile = FileHandle(forWritingAtPath: outPath)
+}
 
 // MARK: - transcribe-file
 

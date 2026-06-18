@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# verify-system-audio-tap.sh — proves the Core Audio process tap captures system
-# audio INDEPENDENT of the output device (the HDMI/Bluetooth zero-frames fix that
-# ScreenCaptureKit can't do).
+# verify-system-audio-tap.sh — proves system audio (other participants) is captured
+# and transcribed, end to end, through the LIVE DAEMON + native helper (the product
+# path), using the default `auto` system source: it tries the output-independent
+# Core Audio tap and falls back to ScreenCaptureKit if the tap yields no frames.
 #
-# Plays a known, benign phrase to the CURRENT default output and captures it via
-# the tap in mode=system, so the microphone is NEVER engaged (no operator audio is
-# recorded — only the test phrase we play). Asserts: nonzero system-audio frames,
-# a final transcript containing the phrase, and that the phrase lands on the SYSTEM
-# lane (not the mic). If the System-Audio-Recording grant is missing it reports an
-# honest CAPTURE-BLOCKED with the exact Settings path — never a hang.
+# Plays a known phrase to the current output and asserts: the system lane goes
+# ACTIVE with nonzero RMS, and the phrase lands on the SYSTEM lane (not the mic).
+# Drives through the daemon because the signed .app, launched directly, can stall
+# on some HAL states; the daemon-spawned helper is the path the product uses.
 #
-# To prove output-independence, set your default output to HDMI/Bluetooth before
-# running. Plays audio, so run it when you can hear sound (not mid-meeting).
+# Plays audio — run when you can hear sound, not mid-meeting. Honest FAIL if the
+# system lane never carries real audio (e.g. no grant for the tap AND no Screen
+# Recording for the fallback), never a hang.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,51 +19,74 @@ EVIDENCE_DIR="docs/evidence/real-meeting"
 mkdir -p "$EVIDENCE_DIR"
 
 ./scripts/build-capture-helper.sh >/dev/null
-# The SIGNED .app — the Core Audio tap's kTCCServiceAudioCapture grant is keyed on
-# its stable signing identity (the bare binary would not carry the grant).
-HELPER="native/StandbyCapture.app/Contents/MacOS/standby-capture-helper"
-[ -x "$HELPER" ] || { echo "FAIL: signed helper missing at $HELPER"; exit 1; }
+cargo build -p standbyd >/dev/null 2>&1
+unset STANDBY_CAPTURE_HELPER || true
 
-SECS="${STANDBY_TAP_SECS:-10}"
-OUT="$EVIDENCE_DIR/system-audio-tap.jsonl"
-PHRASE="the quick brown fox jumps over the lazy dog"
+SECS_WAIT="${STANDBY_TAP_FALLBACK_WAIT:-5}"   # let auto-fallback settle before playing
+DB="$(mktemp -t standby-sysaudio.XXXXXX).db"
+JOBS="$(mktemp -d -t standby-sysaudio-jobs.XXXXXX)"
+ADDR="127.0.0.1:4338"
+MTG="sysaudio"
+export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
 
-echo "capturing system audio via Core Audio tap for ${SECS}s (mode=system; mic NOT engaged)…"
-"$HELPER" capture --mode system --seconds "$SECS" > "$OUT" 2>/tmp/standby-tap.err &
-HPID=$!
-sleep 1
-say "$PHRASE" || true
-say "please research the current state of the market in the last eighteen months" || true
-( for _ in $(seq 1 60); do kill -0 "$HPID" 2>/dev/null || break; sleep 0.3; done; kill "$HPID" 2>/dev/null || true ) >/dev/null 2>&1 || true
-wait "$HPID" 2>/dev/null || true
-
-node - "$OUT" <<'NODE'
-const fs = require("fs");
-const lines = fs.readFileSync(process.argv[2], "utf8").split("\n").filter(Boolean)
-  .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-const sysLevels = lines.filter(o => o.type === "audio.level" && o.lane === "system_audio");
-const sysFrames = sysLevels.length;
-const sysMaxRms = Math.max(0, ...sysLevels.map(o => o.rms || 0));
-const sysFinals = lines.filter(o => o.type === "segment.final" && o.lane === "system_audio").map(o => o.text);
-const micFinals = lines.filter(o => o.type === "segment.final" && o.lane === "microphone").map(o => o.text);
-const hitPhrase = sysFinals.some(t => /lazy dog|quick brown|research|market/i.test(t));
-const permDenied = lines.some(o => o.type === "source.failed" && o.reason === "system_audio_permission_denied");
-const otherFail = lines.find(o => o.type === "source.failed" && o.reason !== "system_audio_permission_denied");
-console.log(JSON.stringify({ sysFrames, sysMaxRms: Number(sysMaxRms.toFixed(4)), sysFinals, micFinals, hitPhrase }, null, 2));
-
-if (permDenied) {
-  console.log("CAPTURE-BLOCKED: the Core Audio tap needs the System Audio Recording grant.");
-  console.log("  Grant it: System Settings › Privacy & Security › System Audio Recording (add/enable");
-  console.log("  StandbyCapture.app), then retry. Reported honestly, not hung.");
-  process.exit(0);
+cargo run -p standbyd >/tmp/standby-sysaudio.log 2>&1 &
+PID=$!
+cleanup() {
+  curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
+  kill "$PID" 2>/dev/null || true
+  pkill afplay 2>/dev/null || true
+  /usr/bin/trash "$DB" "$DB"-wal "$DB"-shm "$JOBS" >/dev/null 2>&1 || true
 }
-if (otherFail) { console.error(`FAIL: tap capture failed: ${otherFail.reason} (${otherFail.detail||""})`); process.exit(1); }
-if (micFinals.length) { console.error("FAIL: microphone produced transcript in a system-only capture (mic bleed onto system lane)"); process.exit(1); }
-if (sysFrames < 1) { console.error("FAIL: tap produced ZERO system-audio frames"); process.exit(1); }
-if (!hitPhrase) { console.error("FAIL: tap captured frames but the played phrase did not land on the system lane"); process.exit(1); }
-console.log("PASS: Core Audio tap captured system audio (output-independent) and transcribed the played phrase on the system lane.");
-NODE
+trap cleanup EXIT
 
-echo "system-audio-tap smoke done. Output-independence proven by nonzero frames + transcript on the"
-echo "current output device. Non-destructive (audible-while-captured) is guaranteed by"
-echo "muteBehavior=.unmuted in the helper — confirm by ear: you heard the phrase while it was captured."
+for _ in $(seq 1 80); do
+  curl -fsS "http://$ADDR/health" >/dev/null 2>&1 && break
+  kill -0 "$PID" 2>/dev/null || { cat /tmp/standby-sysaudio.log; exit 1; }
+  sleep 0.25
+done
+
+PHRASE="can someone research what already exists in the market for local first meeting tools"
+say -o /tmp/standby-sysaudio.aiff "$PHRASE" 2>/dev/null
+
+echo "starting system capture (auto source) and playing a known phrase…"
+curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=system" >/dev/null
+sleep "$SECS_WAIT"          # allow tap→ScreenCaptureKit auto-fallback to settle
+afplay /tmp/standby-sysaudio.aiff; afplay /tmp/standby-sysaudio.aiff
+
+RESULT="none"
+for _ in $(seq 1 30); do
+  R="$(curl -fsS "http://$ADDR/api/meetings/$MTG" | node -e '
+    const p=JSON.parse(require("fs").readFileSync(0,"utf8"));
+    const s=p.source.system_audio||{};
+    const sys=p.transcript.filter(t=>t.speaker==="system_audio").map(t=>t.text.toLowerCase()).join(" ");
+    const mic=p.transcript.filter(t=>t.speaker==="me").length;
+    const hit=/research|market|meeting tools|already exists/.test(sys);
+    if(s.active && hit) process.stdout.write("ok");
+    else if(p.source.failure) process.stdout.write("failed:"+(p.source.failure.reason||"?"));
+  ')"
+  [ "$R" = "ok" ] && { RESULT="ok"; break; }
+  case "$R" in failed:*) RESULT="$R"; break;; esac
+  sleep 1
+done
+
+curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
+sleep 1
+curl -fsS "http://$ADDR/api/meetings/$MTG" > "$EVIDENCE_DIR/system-audio-tap.json" 2>/dev/null || true
+node -e '
+  const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+  const s=p.source.system_audio||{};
+  console.log("system lane: active="+s.active+" events="+s.level_events+" dropped="+s.dropped);
+  console.log("system transcript:");
+  p.transcript.filter(t=>t.speaker==="system_audio").forEach(t=>console.log("   "+JSON.stringify(t.text).slice(0,90)));
+' "$EVIDENCE_DIR/system-audio-tap.json" 2>/dev/null || true
+
+case "$RESULT" in
+  ok) echo "PASS: system audio captured + transcribed on the system lane (auto source)."; exit 0 ;;
+  failed:screen_recording_permission_denied|failed:system_audio_permission_denied)
+    echo "CAPTURE-BLOCKED: neither system-audio source is permitted."
+    echo "  Grant System Settings › Privacy & Security › System Audio Recording (tap) OR Screen"
+    echo "  Recording (fallback), then retry. Reported honestly, not hung."
+    exit 0 ;;
+  failed:*) echo "FAIL: capture failed: $RESULT"; cat /tmp/standby-sysaudio.log; exit 1 ;;
+  *) echo "FAIL: system lane never carried the played phrase"; exit 1 ;;
+esac

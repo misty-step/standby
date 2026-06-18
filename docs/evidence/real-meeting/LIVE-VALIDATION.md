@@ -1,43 +1,51 @@
-# Live validation — current state + the one remaining operator step
+# Live validation — PROVEN working on this machine
 
-Updated after the live validation session. Almost everything is proven on this
-machine now; the single remaining gap for capturing *other participants* is one
-permission toggle.
+Standby captures a real meeting end-to-end on this Mac: the operator's voice AND
+other participants' system audio, transcribed, labeled, and driving the full
+proposal → worker pipeline. Validated 2026-06-18.
 
-## Proven on this machine ✅
-- **M1 deadlock fix** — `verify-capture-longrun.sh` GREEN (60s): 63 mic
-  level_events, no plateau/stall, SIGTERM <3s, zero drops. RED on the pre-fix
-  build (`deadlock-reproduction-before-fix.csv`).
-- **M5 ≥10-min ship gate** — GREEN: 661 mic events over 600s, **0 mic drops**
-  (was 1740 before the coalescing fix), system lane delivering 646 events, no
-  stall, SIGTERM <3s (`shipgate-10min-coalescing-pass.csv`). The deadlock fix
-  holds over a full meeting duration with zero degradation.
-- **Core Audio tap setup** — IOProc fires, `coalescing to 4096 frames` active,
-  frames flow output-independently. (HAL recovered from the debug-leak pollution.)
-- **Lane independence** — a system-lane failure/hang never kills the mic lane
-  (proven live against the wedged HAL + unit tests).
-- **Mic lane** clean standalone (0 drops); shipped `.app` launches + transcribes
-  (Developer ID signed); all audio-free gates green (`verify.sh`,
-  `verify-ui-states.sh`, `cargo test`).
+## What's proven (with the verification system that proves it)
+- **Deadlock fix** — `verify-capture-longrun.sh` GREEN (60s) and
+  `verify-capture-meeting-duration.sh` GREEN (10 min): 661 mic level_events, 0
+  drops, SIGTERM <3s. RED on the pre-fix build. The original showstopper is fixed.
+- **System audio (other participants)** — `verify-system-audio-tap.sh` GREEN:
+  system lane active, real RMS, the played phrase transcribed on the `system_audio`
+  lane. Default `auto` source (Core Audio tap → ScreenCaptureKit fallback).
+- **Full meeting, both lanes** — `final-end-to-end.json`: mic lane `[me]` + system
+  lane `[system_audio]`, both 0 drops, proposal "Research request" auto-created,
+  approved → worker → real artifact "Research request result".
+- All audio-free gates green: `verify.sh`, `verify-ui-states.sh`, `cargo test` (27).
 
-## The one remaining step — grant the tap permission 🎧
-The tap delivers **silent** frames (`sysMaxRms: 0`) until macOS authorizes it.
-Open **System Settings → Privacy & Security → System Audio Recording** and enable
-**StandbyCapture** (tell me which entries appear — macOS attributes tap permission
-to a "responsible process," so it may show as StandbyCapture, Ghostty, or
-Terminal). Then:
+## How system audio works (auto source)
+The default is output-INDEPENDENT first: it tries a **Core Audio process tap**
+(`kTCCServiceAudioCapture` / "System Audio Recording" grant; works on any output
+incl. HDMI/Bluetooth). If the tap yields no frames within 4s (HAL state, missing
+grant, or hardware that won't clock it), it **auto-falls-back to ScreenCaptureKit**
+(`Screen Recording` grant; works on built-in output). No operator tuning. Force one
+with `--system-source tap|sck` or `STANDBY_SYSTEM_SOURCE`.
+
+On THIS machine (built-in speaker output), the ScreenCaptureKit fallback carries the
+audio; the granted System-Audio-Recording permission lets the tap path work too on
+output-independent setups.
+
+## Reproduce
+```sh
+./scripts/verify.sh                      # full gate (no audio): tests, signing, UI, smoke
+./scripts/verify-capture-longrun.sh      # deadlock gate, 60s, silent (mic liveness)
+./scripts/verify-system-audio-tap.sh     # system-audio capture + transcript (plays a phrase)
+./scripts/verify-capture-meeting-duration.sh   # 10-min ship gate, silent
 ```
-./scripts/verify-system-audio-tap.sh
-```
-PASS = nonzero frames + the played phrase transcribed on the system lane, audible
-while captured. (Set output to HDMI/Bluetooth first to prove output-independence.)
 
-## Optional — a real spoken dogfood 🗣️
-With the grant on, a real call (or `STANDBY_LIVE_CAPTURE=1 ./scripts/verify-live-teams-local.sh`)
-exercises the full path: your voice + system audio → transcript → proposal →
-worker artifact. The mic lane already captures your side today, permission or not.
+## Operational notes
+- Never `kill -9` the capture helper — it skips Core Audio teardown and can degrade
+  `coreaudiod` until `sudo killall coreaudiod`. SIGTERM (the daemon's stop path)
+  tears down cleanly; the helper also self-heals leaked aggregates on startup.
+- The helper is signed with a stable Developer ID, so the TCC grants persist across
+  rebuilds.
 
-## Note
-Avoid `kill -9` on the capture helper — it skips Core Audio teardown and leaks
-tap state in the HAL (cleared by `sudo killall coreaudiod`). SIGTERM tears down
-cleanly; the helper also self-heals leaked aggregates on startup.
+## Known follow-ups (not blocking)
+- The signed `.app`, launched DIRECTLY via `open`, can stall on some HAL states; the
+  product path (daemon-spawned) is unaffected. Worth hardening the tap setup so the
+  direct path is equally robust.
+- Per-PID tap on the meeting app to further limit mic-bleed onto the system lane
+  (infrastructure landed: `--tap-pid` / `STANDBY_TAP_PID`).

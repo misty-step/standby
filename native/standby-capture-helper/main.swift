@@ -294,6 +294,11 @@ final class CaptureLane: @unchecked Sendable {
     private let stream: AsyncStream<AVAudioPCMBuffer>
     private let continuation: AsyncStream<AVAudioPCMBuffer>.Continuation
     private let dropped = Atomic<Int>(0)
+    private let received = Atomic<Int>(0)
+
+    /// Total buffers submitted by the realtime source. Used to detect a system
+    /// source that produced nothing (so the lane can fall back to another source).
+    var framesReceived: Int { received.load(ordering: .relaxed) }
 
     /// ~64 buffers of headroom (several seconds at typical buffer sizes). The
     /// consumer (convert + feed) easily keeps up in steady state, so this never
@@ -311,6 +316,7 @@ final class CaptureLane: @unchecked Sendable {
 
     /// Called from a realtime audio thread. Non-blocking: yield or count a drop.
     func submit(_ buffer: AVAudioPCMBuffer) {
+        received.wrappingAdd(1, ordering: .relaxed)
         switch continuation.yield(buffer) {
         case .dropped:
             dropped.wrappingAdd(1, ordering: .relaxed)
@@ -721,6 +727,17 @@ final class SystemAudioCapture: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 }
 
+// MARK: - Teardown holder (lock-guarded, Sendable)
+
+/// Holds the active system-audio source's teardown closure behind a lock so it can
+/// be set on a background acquisition queue and read by the stop task safely.
+final class TeardownBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var teardown: (() -> Void)?
+    func set(_ td: @escaping () -> Void) { lock.lock(); teardown = td; lock.unlock() }
+    func take() -> (() -> Void)? { lock.lock(); defer { lock.unlock() }; return teardown }
+}
+
 // MARK: - Stop signal (SIGTERM/SIGINT/--seconds on a DEDICATED queue, not .main)
 
 /// Resolves exactly once, from a signal source or a timer, both serviced on a
@@ -863,17 +880,10 @@ func runCapture(mode: String, seconds: Double?) async {
 
     var lanes: [CaptureLane] = []
     let engine = AVAudioEngine()
-    // Teardown for the Core Audio tap, set once acquired (on a background queue) and
-    // read by the stop task — guarded because they run on different threads. The
-    // accessors are synchronous so the lock is never taken from an async context.
-    let sysLock = NSLock()
-    var systemTeardown: (() -> Void)?
-    func setSystemTeardown(_ td: @escaping () -> Void) {
-        sysLock.lock(); systemTeardown = td; sysLock.unlock()
-    }
-    func takeSystemTeardown() -> (() -> Void)? {
-        sysLock.lock(); defer { sysLock.unlock() }; return systemTeardown
-    }
+    // Teardown for the active system-audio source, set once acquired (on a
+    // background queue) and read by the stop task. A lock-guarded Sendable holder
+    // (called directly as systemTeardownBox.set/.take) so it's safe across threads.
+    let systemTeardownBox = TeardownBox()
 
     // A system-lane failure is NON-FATAL when the microphone lane is running: the
     // mic keeps capturing and the system lane is reported failed. Only a
@@ -939,18 +949,18 @@ func runCapture(mode: String, seconds: Double?) async {
         }
         if transcriberOK {
             lanes.append(lane)
-            // --system-source sck forces the ScreenCaptureKit fallback (Screen-
-            // Recording grant, output-coupled) instead of the Core Audio tap
-            // (System-Audio-Recording grant, output-independent). Default: tap.
-            let systemSource = argValue("--system-source", in: arguments) ?? "tap"
-            if systemSource == "sck" {
+
+            // Start the ScreenCaptureKit source (Screen-Recording grant,
+            // output-coupled — real frames on built-in output). Used as the `sck`
+            // source and as the automatic fallback when the tap yields no frames.
+            func startScreenCaptureKit() {
                 let capture = SystemAudioCapture { buffer in lane.submit(buffer) }
                 Task {
                     do {
                         try await capture.start()
                         if systemSettled.exchange(true, ordering: .relaxed) == false {
-                            setSystemTeardown { Task { await capture.stop() } }
-                            logErr("system audio: ScreenCaptureKit active (output-coupled fallback)")
+                            systemTeardownBox.set { Task { await capture.stop() } }
+                            logErr("system audio: ScreenCaptureKit active")
                         } else {
                             await capture.stop()
                         }
@@ -958,46 +968,98 @@ func runCapture(mode: String, seconds: Double?) async {
                         settleSystemFailure("screen_recording_permission_denied", "\(error)")
                     }
                 }
-            } else {
-            DispatchQueue.global(qos: .userInitiated).async {
-                guard #available(macOS 14.2, *) else {
-                    settleSystemFailure("system_audio_unsupported_os", "Core Audio taps need macOS 14.2+")
-                    return
-                }
-                let targets = tapPIDs.compactMap { SystemAudioTap.processObject(for: $0) }
-                if !tapPIDs.isEmpty {
-                    logErr("system audio: per-process tap of \(targets.count)/\(tapPIDs.count) target(s)")
-                }
-                let tap = SystemAudioTap(targetProcesses: targets) { buffer in lane.submit(buffer) }
-                let tapDone = Atomic<Bool>(false)
-                // A HAL wedge in tap.start() leaks this one background thread but
-                // never blocks the mic lane or shutdown; the watchdog reports it.
-                armWatchdog(8) {
-                    if !tapDone.load(ordering: .relaxed) {
-                        settleSystemFailure(
-                            "unknown",
-                            "Core Audio tap setup did not complete in 8s (HAL wedge); try `sudo killall coreaudiod`")
-                    }
-                }
-                do {
-                    try tap.start()
-                    tapDone.store(true, ordering: .relaxed)
-                    if systemSettled.exchange(true, ordering: .relaxed) == false {
-                        setSystemTeardown { tap.stop() }
-                        logErr("system audio: Core Audio process tap active (output-independent)")
-                    } else {
-                        tap.stop()  // watchdog already failed the lane; don't leak the late tap
-                    }
-                } catch SystemAudioTap.TapError.notPermitted {
-                    tapDone.store(true, ordering: .relaxed)
-                    settleSystemFailure(
-                        "system_audio_permission_denied",
-                        "grant System Settings › Privacy & Security › System Audio Recording")
-                } catch {
-                    tapDone.store(true, ordering: .relaxed)
-                    settleSystemFailure("unknown", "tap setup failed: \(error)")
-                }
             }
+
+            // Source selection. Default `auto`: try the output-independent Core
+            // Audio tap, and if it delivers no frames within a few seconds (HAL
+            // degraded, missing grant, or a config that won't clock), fall back to
+            // ScreenCaptureKit — so system audio is captured on this machine without
+            // operator tuning. `tap` / `sck` force one source.
+            let systemSource =
+                argValue("--system-source", in: arguments)
+                ?? ProcessInfo.processInfo.environment["STANDBY_SYSTEM_SOURCE"] ?? "auto"
+
+            if systemSource == "sck" {
+                startScreenCaptureKit()
+            } else {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    guard #available(macOS 14.2, *) else {
+                        if systemSource == "auto" { startScreenCaptureKit() }
+                        else { settleSystemFailure("system_audio_unsupported_os", "Core Audio taps need macOS 14.2+") }
+                        return
+                    }
+                    let targets = tapPIDs.compactMap { SystemAudioTap.processObject(for: $0) }
+                    if !tapPIDs.isEmpty {
+                        logErr("system audio: per-process tap of \(targets.count)/\(tapPIDs.count) target(s)")
+                    }
+                    let tap = SystemAudioTap(targetProcesses: targets) { buffer in lane.submit(buffer) }
+                    let tapDone = Atomic<Bool>(false)
+                    // A HAL wedge in tap.start() leaks this one background thread but
+                    // never blocks the mic lane or shutdown; the watchdog reports it
+                    // (auto-mode falls back to ScreenCaptureKit instead of failing).
+                    armWatchdog(8) {
+                        if !tapDone.load(ordering: .relaxed) {
+                            if systemSource == "auto", systemSettled.exchange(true, ordering: .relaxed) == false {
+                                logErr("system audio: tap setup wedged; falling back to ScreenCaptureKit")
+                                startScreenCaptureKit_settledBypass()
+                            } else {
+                                settleSystemFailure("unknown", "Core Audio tap setup did not complete in 8s")
+                            }
+                        }
+                    }
+                    // Helper used by the watchdog: settle was already flipped to true
+                    // above, so start SCK directly (it checks settled internally too).
+                    func startScreenCaptureKit_settledBypass() {
+                        let capture = SystemAudioCapture { buffer in lane.submit(buffer) }
+                        Task {
+                            do {
+                                try await capture.start()
+                                systemTeardownBox.set { Task { await capture.stop() } }
+                                logErr("system audio: ScreenCaptureKit active (tap-wedge fallback)")
+                            } catch { logErr("system audio: SCK fallback failed: \(error)") }
+                        }
+                    }
+                    do {
+                        try tap.start()
+                        tapDone.store(true, ordering: .relaxed)
+                        if systemSettled.exchange(true, ordering: .relaxed) == false {
+                            systemTeardownBox.set { tap.stop() }
+                            logErr("system audio: Core Audio process tap active (output-independent)")
+                            // Auto fallback: if the tap produced no frames within 4s,
+                            // tear it down and switch to ScreenCaptureKit. settled is
+                            // already true (tap.start succeeded), so use the bypass
+                            // path which sets the teardown without re-checking settled.
+                            if systemSource == "auto" {
+                                armWatchdog(4) {
+                                    if lane.framesReceived == 0 {
+                                        logErr("system audio: tap produced no frames in 4s; switching to ScreenCaptureKit")
+                                        tap.stop()
+                                        startScreenCaptureKit_settledBypass()
+                                    }
+                                }
+                            }
+                        } else {
+                            tap.stop()
+                        }
+                    } catch SystemAudioTap.TapError.notPermitted {
+                        tapDone.store(true, ordering: .relaxed)
+                        if systemSource == "auto", systemSettled.load(ordering: .relaxed) == false {
+                            logErr("system audio: tap not permitted; falling back to ScreenCaptureKit")
+                            startScreenCaptureKit()
+                        } else {
+                            settleSystemFailure(
+                                "system_audio_permission_denied",
+                                "grant System Settings › Privacy & Security › System Audio Recording")
+                        }
+                    } catch {
+                        tapDone.store(true, ordering: .relaxed)
+                        if systemSource == "auto", systemSettled.load(ordering: .relaxed) == false {
+                            startScreenCaptureKit()
+                        } else {
+                            settleSystemFailure("unknown", "tap setup failed: \(error)")
+                        }
+                    }
+                }
             }
         }
     }
@@ -1017,7 +1079,7 @@ func runCapture(mode: String, seconds: Double?) async {
             logErr("stop requested: \(reason)")
             engine.stop()
             if wantsMic { engine.inputNode.removeTap(onBus: 0) }
-            takeSystemTeardown()?()
+            systemTeardownBox.take()?()
             for lane in lanes { lane.finishInput() }
         }
         await group.waitForAll()

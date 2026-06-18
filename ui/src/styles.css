@@ -216,7 +216,10 @@ button:disabled {
 .workspace {
   min-width: 0;
   display: grid;
-  grid-template-rows: 60px minmax(0, 1fr) 108px;
+  /* topbar (fixed) · status strip (compact, its natural height) · content (fills
+     the rest). The status strip must NOT take 1fr or it balloons into a giant
+     empty box and pushes the transcript + proposals below the fold. */
+  grid-template-rows: 60px auto minmax(0, 1fr);
 }
 
 .topbar {
@@ -258,7 +261,8 @@ button:disabled {
   min-width: 0;
   border-right: 1px solid var(--line);
   display: grid;
-  grid-template-rows: 66px minmax(0, 1fr) 62px;
+  /* controls (auto) · transcript (fills + scrolls). No vestigial third row. */
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .transcript-tools {
@@ -802,7 +806,8 @@ button:disabled {
 .lane-meter { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .lane-meter.active { color: var(--success); }
 .lane-bar { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: #e3e7ee; overflow: hidden; }
-.lane-bar > span { display: block; height: 100%; background: currentColor; transition: width 0.3s ease; }
+/* Compositor-only transform (no layout thrash): the meter animates every tick. */
+.lane-bar > span { display: block; width: 100%; height: 100%; background: currentColor; transform-origin: left center; transition: transform 0.18s ease; }
 
 .capture-controls { display: flex; align-items: center; gap: 10px; padding: 4px 0 12px; flex-wrap: wrap; }
 .search-field.compact { flex: 1; min-width: 160px; }

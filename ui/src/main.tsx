@@ -362,7 +362,7 @@ function LaneMeter({
       <Icon size={15} />
       <span>{label}</span>
       <span className="lane-bar">
-        <span style={{ width: `${level}%` }} />
+        <span style={{ transform: `scaleX(${level / 100})` }} />
       </span>
     </div>
   );

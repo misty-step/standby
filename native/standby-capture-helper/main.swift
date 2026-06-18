@@ -844,6 +844,26 @@ func runCapture(mode: String, seconds: Double?) async {
         }
         if transcriberOK {
             lanes.append(lane)
+            // --system-source sck forces the ScreenCaptureKit fallback (Screen-
+            // Recording grant, output-coupled) instead of the Core Audio tap
+            // (System-Audio-Recording grant, output-independent). Default: tap.
+            let systemSource = argValue("--system-source", in: arguments) ?? "tap"
+            if systemSource == "sck" {
+                let capture = SystemAudioCapture { buffer in lane.submit(buffer) }
+                Task {
+                    do {
+                        try await capture.start()
+                        if systemSettled.exchange(true, ordering: .relaxed) == false {
+                            setSystemTeardown { Task { await capture.stop() } }
+                            logErr("system audio: ScreenCaptureKit active (output-coupled fallback)")
+                        } else {
+                            await capture.stop()
+                        }
+                    } catch {
+                        settleSystemFailure("screen_recording_permission_denied", "\(error)")
+                    }
+                }
+            } else {
             DispatchQueue.global(qos: .userInitiated).async {
                 guard #available(macOS 14.2, *) else {
                     settleSystemFailure("system_audio_unsupported_os", "Core Audio taps need macOS 14.2+")
@@ -878,6 +898,7 @@ func runCapture(mode: String, seconds: Double?) async {
                     tapDone.store(true, ordering: .relaxed)
                     settleSystemFailure("unknown", "tap setup failed: \(error)")
                 }
+            }
             }
         }
     }

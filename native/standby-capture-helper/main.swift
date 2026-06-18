@@ -392,14 +392,36 @@ final class SystemAudioTap {
     static let notPermittedStatus: OSStatus = 1_852_797_029
 
     private let onBuffer: (AVAudioPCMBuffer) -> Void
+    /// Audio process objects to tap. Empty = global tap. A non-empty per-process
+    /// list is AudioCap's working pattern: it avoids the global-tap clock conflict
+    /// with the device-clocked aggregate (which leaves the IOProc never firing).
+    private let targetProcesses: [AudioObjectID]
     private let ioQueue = DispatchQueue(label: "standby.capture.tap.io")
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
     private var format: AVAudioFormat?
 
-    init(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) {
+    init(targetProcesses: [AudioObjectID] = [], onBuffer: @escaping (AVAudioPCMBuffer) -> Void) {
+        self.targetProcesses = targetProcesses
         self.onBuffer = onBuffer
+    }
+
+    /// Translate a PID to its Core Audio process object, or nil if it has none.
+    static func processObject(for pid: pid_t) -> AudioObjectID? {
+        var pidValue = pid
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var object = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = withUnsafeMutablePointer(to: &pidValue) { ptr in
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject), &address,
+                UInt32(MemoryLayout<pid_t>.size), ptr, &size, &object)
+        }
+        return status == noErr && object != kAudioObjectUnknown ? object : nil
     }
 
     func start() throws {
@@ -414,15 +436,15 @@ final class SystemAudioTap {
         var succeeded = false
         defer { if !succeeded { teardown() } }
 
-        // 1. Global tap of ALL process output (every participant), excluding none.
-        //    CRITICAL: `stereoMixdownOfProcesses: []` taps ZERO processes (silence) —
-        //    it mixes down the *listed* processes, and the list is empty. The
-        //    global-tap-but-exclude initializer is what captures everything; an
-        //    empty exclude list means "exclude nothing". (Compiles either way; only
-        //    live capture reveals the difference — it did.) The operator's own mic
-        //    does not flow to local output, so a per-PID tap is a later mic-bleed
-        //    refinement, not needed for correctness here.
-        let description = CATapDescription(monoGlobalTapButExcludeProcesses: [])
+        // 1. Tap description. PER-PROCESS (stereoMixdownOfProcesses: [target...]) is
+        //    AudioCap's working pattern and what fires the IOProc with the
+        //    device-clocked aggregate; the GLOBAL tap conflicts with the aggregate's
+        //    own output and never fires. Empty target list falls back to global
+        //    (fires but yields silence — kept only as a last resort).
+        let description: CATapDescription =
+            targetProcesses.isEmpty
+            ? CATapDescription(monoGlobalTapButExcludeProcesses: [])
+            : CATapDescription(stereoMixdownOfProcesses: targetProcesses)
         description.name = "StandbyCaptureTap"
         description.isPrivate = true
         description.isExclusive = false
@@ -468,7 +490,12 @@ final class SystemAudioTap {
                 ]
             ],
         ]
-        if let outputUID {
+        // STANDBY_TAP_NO_SUBDEVICE=1 forces a tap-only aggregate (no output
+        // sub-device). On this machine the tap-only config reliably FIRES the
+        // IOProc; the open question is whether it carries real audio once the
+        // System-Audio-Recording grant is present.
+        let tapOnly = ProcessInfo.processInfo.environment["STANDBY_TAP_NO_SUBDEVICE"] == "1"
+        if let outputUID, !tapOnly {
             aggDescription[kAudioAggregateDeviceMainSubDeviceKey as String] = outputUID
             aggDescription[kAudioAggregateDeviceSubDeviceListKey as String] = [
                 [kAudioSubDeviceUIDKey as String: outputUID]
@@ -823,6 +850,17 @@ func runCapture(mode: String, seconds: Double?) async {
     let stop = StopSignal()
     stop.arm(seconds: seconds)
 
+    // Per-process system-audio tap targets (the working pattern). From --tap-pid
+    // <pid[,pid...]> or the STANDBY_TAP_PID env (so a daemon-spawned helper can be
+    // targeted without changing the spawn args). Empty → global tap (silent
+    // fallback).
+    let tapPIDs: [pid_t] = {
+        let raw =
+            argValue("--tap-pid", in: arguments)
+            ?? ProcessInfo.processInfo.environment["STANDBY_TAP_PID"] ?? ""
+        return raw.split(separator: ",").compactMap { pid_t($0) }
+    }()
+
     var lanes: [CaptureLane] = []
     let engine = AVAudioEngine()
     // Teardown for the Core Audio tap, set once acquired (on a background queue) and
@@ -926,7 +964,11 @@ func runCapture(mode: String, seconds: Double?) async {
                     settleSystemFailure("system_audio_unsupported_os", "Core Audio taps need macOS 14.2+")
                     return
                 }
-                let tap = SystemAudioTap { buffer in lane.submit(buffer) }
+                let targets = tapPIDs.compactMap { SystemAudioTap.processObject(for: $0) }
+                if !tapPIDs.isEmpty {
+                    logErr("system audio: per-process tap of \(targets.count)/\(tapPIDs.count) target(s)")
+                }
+                let tap = SystemAudioTap(targetProcesses: targets) { buffer in lane.submit(buffer) }
                 let tapDone = Atomic<Bool>(false)
                 // A HAL wedge in tap.start() leaks this one background thread but
                 // never blocks the mic lane or shutdown; the watchdog reports it.

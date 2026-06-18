@@ -16,6 +16,24 @@ smuggled into the branch.
 
 ## Capture / platform
 
+- **Mic contention during a call (diagnosed 2026-06-18, live Google Meet).** While a
+  meeting app (Chrome/Meet WebRTC) holds the microphone with voice-processing IO
+  (AEC/AGC), macOS delivers SILENCE to Standby's second AVAudioEngine input client —
+  the mic lane stays alive (level events flow) but RMS ~0 on every input device
+  (built-in AND external). Standby's mic captures the operator's voice fine when no
+  voice-processing call is active. The remote-participants path (system-audio tap /
+  ScreenCaptureKit) is unaffected and works. Tried `setVoiceProcessingEnabled(true)`
+  on our input (the documented call-coexistence path) — it froze capture because VPIO
+  needs full-duplex setup (input wired to an active output as the echo reference);
+  left opt-in behind `STANDBY_VOICE_PROCESSING=1` pending that wiring. Options to
+  pursue: (a) finish the VPIO full-duplex graph; (b) per-process tap of the meeting
+  app for ALL call audio incl. the operator (the app outputs the mixed call? — verify);
+  (c) document mic-in-call as a known limitation and lead with remote-participant
+  capture. Secondary bug found same session: the mic lane froze after ~9 min (engine
+  stall on an idle/stalled input device, no auto-recovery) — add mic-stall detection
+  + engine rebind, and a HAL default-input-change listener.
+
+
 Much of this section was delivered by the capture-helper rewrite —
 `docs/decisions/0001-core-audio-taps-and-dual-permission.md` (deadlock fix,
 output-independent Core Audio taps, dual-permission model, stable-signed helper).

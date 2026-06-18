@@ -910,6 +910,19 @@ func runCapture(mode: String, seconds: Double?) async {
             failAndExit(reason: "unknown", lane: "microphone", detail: "mic transcriber: \(error)")
         }
         let input = engine.inputNode
+        // Voice processing (VPIO) is the documented path to capture the mic DURING a
+        // call (coexist with Meet's WebRTC + AEC/AGC), BUT it needs full-duplex setup
+        // (input wired to an active output as the echo reference); merely tapping it
+        // freezes capture. Left as opt-in (STANDBY_VOICE_PROCESSING=1) pending that
+        // wiring; default is the working raw input. See the mic-contention finding.
+        if ProcessInfo.processInfo.environment["STANDBY_VOICE_PROCESSING"] == "1" {
+            do {
+                try input.setVoiceProcessingEnabled(true)
+                logErr("microphone: voice processing enabled (experimental)")
+            } catch {
+                logErr("microphone: could not enable voice processing (\(error)); using raw input")
+            }
+        }
         let format = input.outputFormat(forBus: 0)
         // Pre-allocate the ring HERE (off the render thread). Capacity 2× the tap
         // buffer size absorbs occasional larger callbacks; 96 slots exceed the lane

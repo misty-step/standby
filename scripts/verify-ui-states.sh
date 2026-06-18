@@ -74,7 +74,9 @@ expect uitest-nosys no_system_audio; shot uitest-nosys no-system-audio
 seed uitest-nomic '{"type":"source.started","mode":"mic+system"}' '{"type":"audio.level","lane":"system_audio","rms":0.06,"captured_ms":1000}' '{"type":"audio.level","lane":"microphone","rms":0.0,"captured_ms":1000}'
 expect uitest-nomic no_mic_audio
 
-seed uitest-failed '{"type":"source.started","mode":"mic+system"}' '{"type":"source.failed","reason":"screen_recording_permission_denied","lane":"system_audio","detail":"denied"}'
+# Whole-source failure: a system-ONLY capture whose system lane fails has no
+# surviving lane, so the whole source is failed.
+seed uitest-failed '{"type":"source.started","mode":"system"}' '{"type":"source.failed","reason":"screen_recording_permission_denied","lane":"system_audio","detail":"denied"}'
 expect uitest-failed failed; shot uitest-failed failed
 
 echo "2b) the distinct permission tiers render as distinct reasons (mic / screen-rec / core-audio-tap)"
@@ -85,9 +87,11 @@ expect_reason() { local got; got="$(reason "$1")"; if [ "$got" != "$2" ]; then e
 seed uitest-failmic '{"type":"source.started","mode":"mic+system"}' '{"type":"source.failed","reason":"mic_permission_denied","lane":"microphone","detail":"denied"}'
 expect uitest-failmic failed; expect_reason uitest-failmic mic_permission_denied; shot uitest-failmic failed-mic
 # Core Audio process-tap tier ("System Audio Recording Only") — a SEPARATE Settings
-# pane from Screen Recording, classified from kAudioHardwareNotPermittedError.
+# pane from Screen Recording, classified from kAudioHardwareNotPermittedError. In
+# mic+system, a system-lane failure is NON-FATAL: the mic keeps capturing, so the
+# status stays "capturing" and the system failure is surfaced as a per-lane note.
 seed uitest-failtap '{"type":"source.started","mode":"mic+system"}' '{"type":"source.failed","reason":"system_audio_permission_denied","lane":"system_audio","detail":"kAudioHardwareNotPermittedError"}'
-expect uitest-failtap failed; expect_reason uitest-failtap system_audio_permission_denied; shot uitest-failtap failed-system-audio
+expect uitest-failtap capturing; expect_reason uitest-failtap system_audio_permission_denied; shot uitest-failtap system-audio-denied
 
 # All three tiers must be distinct reason strings, and the shipped UI bundle must
 # carry distinct operator text for each (so the cards can't collapse to one).

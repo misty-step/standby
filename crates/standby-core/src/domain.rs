@@ -169,6 +169,10 @@ pub struct LaneState {
     /// Cumulative transcriber-bound buffers dropped on overflow. Nonzero means
     /// lost transcript — surfaced honestly, never silent.
     pub dropped: u32,
+    /// This specific lane failed (e.g. system-audio permission/HAL). A per-lane
+    /// failure does NOT fail the whole capture when another lane is still live —
+    /// the microphone keeps recording while the system lane shows as failed.
+    pub failed: bool,
 }
 
 /// The projected capture state for a meeting, derived from source/audio events.

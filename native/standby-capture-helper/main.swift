@@ -768,9 +768,29 @@ func runCapture(mode: String, seconds: Double?) async {
 
     var lanes: [CaptureLane] = []
     let engine = AVAudioEngine()
-    var systemCapture: SystemAudioCapture?
-    // Type-erased teardown for the Core Audio tap (its type is @available-gated).
-    var stopSystemTap: (() -> Void)?
+    // Teardown for the Core Audio tap, set once acquired (on a background queue) and
+    // read by the stop task — guarded because they run on different threads. The
+    // accessors are synchronous so the lock is never taken from an async context.
+    let sysLock = NSLock()
+    var systemTeardown: (() -> Void)?
+    func setSystemTeardown(_ td: @escaping () -> Void) {
+        sysLock.lock(); systemTeardown = td; sysLock.unlock()
+    }
+    func takeSystemTeardown() -> (() -> Void)? {
+        sysLock.lock(); defer { sysLock.unlock() }; return systemTeardown
+    }
+
+    // A system-lane failure is NON-FATAL when the microphone lane is running: the
+    // mic keeps capturing and the system lane is reported failed. Only a
+    // system-only capture treats a system failure as fatal (nothing else to record).
+    func failSystemLane(_ reason: String, _ detail: String) {
+        emit(["type": "source.failed", "reason": reason, "lane": "system_audio", "detail": detail])
+        if !wantsMic {
+            flushStdout()
+            exit(1)
+        }
+        logErr("system lane failed (\(reason)); microphone capture continues")
+    }
 
     // Microphone lane (output-independent; always available once granted).
     if wantsMic {
@@ -803,72 +823,63 @@ func runCapture(mode: String, seconds: Double?) async {
         lanes.append(lane)
     }
 
-    // System audio lane: prefer the output-independent Core Audio tap; fall back
-    // to ScreenCaptureKit (output-coupled) on older OS or tap setup failure.
+    // System-audio lane via the Core Audio tap. The tap is acquired on a DEDICATED
+    // background queue, decoupled from the consumer TaskGroup: tap.start() is
+    // synchronous and a HAL call inside can wedge, and it must NEVER block the mic
+    // lane or shutdown. The lane's consumer runs in the group regardless; if the tap
+    // never feeds it, it idles until stop. The OS floor is macOS 26 (SpeechAnalyzer),
+    // so the 14.2+ tap is always available — SystemAudioCapture (ScreenCaptureKit)
+    // is retained as a type but unused on this deployment.
+    let systemSettled = Atomic<Bool>(false)
+    func settleSystemFailure(_ reason: String, _ detail: String) {
+        guard systemSettled.exchange(true, ordering: .relaxed) == false else { return }
+        failSystemLane(reason, detail)
+    }
     if wantsSystem {
         let lane = CaptureLane(lane: "system_audio", speaker: "system_audio", locale: locale)
+        var transcriberOK = true
         do { try await lane.start() } catch {
-            failAndExit(reason: "unknown", lane: "system_audio", detail: "system transcriber: \(error)")
+            transcriberOK = false
+            settleSystemFailure("unknown", "system transcriber: \(error)")
         }
-
-        var systemStarted = false
-        if #available(macOS 14.2, *) {
-            let tap = SystemAudioTap { buffer in lane.submit(buffer) }
-            // Hard watchdog: tap.start() is synchronous and a HAL call inside can
-            // wedge (observed). If it does, the consumer TaskGroup never starts and
-            // SIGTERM can't be handled, so exit() from a background queue is the only
-            // escape. Fires ONLY on a genuine hang (cleared on every real outcome).
-            let tapDone = Atomic<Bool>(false)
-            armWatchdog(8) {
-                if !tapDone.load(ordering: .relaxed) {
-                    failAndExit(
-                        reason: "unknown", lane: "system_audio",
-                        detail: "Core Audio tap setup did not complete in 8s (HAL wedge)")
+        if transcriberOK {
+            lanes.append(lane)
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard #available(macOS 14.2, *) else {
+                    settleSystemFailure("system_audio_unsupported_os", "Core Audio taps need macOS 14.2+")
+                    return
+                }
+                let tap = SystemAudioTap { buffer in lane.submit(buffer) }
+                let tapDone = Atomic<Bool>(false)
+                // A HAL wedge in tap.start() leaks this one background thread but
+                // never blocks the mic lane or shutdown; the watchdog reports it.
+                armWatchdog(8) {
+                    if !tapDone.load(ordering: .relaxed) {
+                        settleSystemFailure(
+                            "unknown",
+                            "Core Audio tap setup did not complete in 8s (HAL wedge); try `sudo killall coreaudiod`")
+                    }
+                }
+                do {
+                    try tap.start()
+                    tapDone.store(true, ordering: .relaxed)
+                    if systemSettled.exchange(true, ordering: .relaxed) == false {
+                        setSystemTeardown { tap.stop() }
+                        logErr("system audio: Core Audio process tap active (output-independent)")
+                    } else {
+                        tap.stop()  // watchdog already failed the lane; don't leak the late tap
+                    }
+                } catch SystemAudioTap.TapError.notPermitted {
+                    tapDone.store(true, ordering: .relaxed)
+                    settleSystemFailure(
+                        "system_audio_permission_denied",
+                        "grant System Settings › Privacy & Security › System Audio Recording")
+                } catch {
+                    tapDone.store(true, ordering: .relaxed)
+                    settleSystemFailure("unknown", "tap setup failed: \(error)")
                 }
             }
-            do {
-                try tap.start()
-                tapDone.store(true, ordering: .relaxed)
-                stopSystemTap = { tap.stop() }
-                systemStarted = true
-                logErr("system audio: Core Audio process tap active (output-independent)")
-            } catch SystemAudioTap.TapError.notPermitted {
-                tapDone.store(true, ordering: .relaxed)
-                // Attempt-and-classify: the tap's own TCC tier, distinct from
-                // Screen Recording. No public pre-check exists; this is the signal.
-                failAndExit(
-                    reason: "system_audio_permission_denied", lane: "system_audio",
-                    detail: "Core Audio tap not permitted — grant System Settings › Privacy & Security › System Audio Recording")
-            } catch {
-                tapDone.store(true, ordering: .relaxed)
-                logErr("system audio: tap unavailable (\(error)); falling back to ScreenCaptureKit")
-            }
         }
-
-        if !systemStarted {
-            let capture = SystemAudioCapture { buffer in lane.submit(buffer) }
-            // Hard watchdog: SCStream acquisition can hang (no throw) when the host
-            // process lacks Screen-Recording TCC. exit() from a background queue is
-            // the only escape from that non-cancellable await.
-            let started = Atomic<Bool>(false)
-            armWatchdog(8) {
-                if !started.load(ordering: .relaxed) {
-                    failAndExit(
-                        reason: "screen_recording_permission_denied", lane: "system_audio",
-                        detail: "system audio did not start in 8s (host process may lack Screen-Recording permission)")
-                }
-            }
-            do {
-                try await capture.start()
-                started.store(true, ordering: .relaxed)
-                systemCapture = capture
-            } catch {
-                started.store(true, ordering: .relaxed)
-                failAndExit(
-                    reason: "screen_recording_permission_denied", lane: "system_audio", detail: "\(error)")
-            }
-        }
-        lanes.append(lane)
     }
 
     emit(["type": "source.started", "mode": mode, "mic": wantsMic, "system": wantsSystem])
@@ -886,8 +897,7 @@ func runCapture(mode: String, seconds: Double?) async {
             logErr("stop requested: \(reason)")
             engine.stop()
             if wantsMic { engine.inputNode.removeTap(onBus: 0) }
-            stopSystemTap?()
-            await systemCapture?.stop()
+            takeSystemTeardown()?()
             for lane in lanes { lane.finishInput() }
         }
         await group.waitForAll()

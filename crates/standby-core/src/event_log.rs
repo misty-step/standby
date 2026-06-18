@@ -181,14 +181,29 @@ impl EventStore {
                 event_types::SOURCE_FAILED => {
                     let failed: SourceFailed = decode(&event.payload_json)?;
                     source.source = Some(failed.source);
+                    // Mark the specific lane that failed.
+                    match failed.lane {
+                        Some(AudioLane::Microphone) => source.microphone.failed = true,
+                        Some(AudioLane::SystemAudio) => source.system_audio.failed = true,
+                        None => {}
+                    }
+                    // A system-audio failure is PER-LANE when the mic lane is also
+                    // expected: the mic keeps capturing, so the whole capture is not
+                    // failed. Record the failure for display but leave the status to
+                    // the surviving lane / a later stop. Any other failure (mic, or
+                    // system-only) fails the whole source.
+                    let system_lane_only =
+                        failed.lane == Some(AudioLane::SystemAudio) && source.microphone.expected;
                     source.failure = Some(SourceFailure {
                         reason: failed.reason,
                         lane: failed.lane,
                         detail: failed.detail,
                     });
-                    source.status = SourceStatus::Failed;
-                    // No in-flight utterance survives a failure.
-                    partial = None;
+                    if !system_lane_only {
+                        source.status = SourceStatus::Failed;
+                        // No in-flight utterance survives a whole-source failure.
+                        partial = None;
+                    }
                 }
                 event_types::SOURCE_STOPPED => {
                     source.stopped = true;
@@ -624,6 +639,8 @@ mod tests {
     fn projection_surfaces_source_failure_reason() {
         let store = EventStore::memory().unwrap();
         let meeting = "m_fail";
+        // System-only capture: a system failure has no surviving lane, so it fails
+        // the whole source.
         store
             .append(
                 meeting,
@@ -633,7 +650,7 @@ mod tests {
                 &SourceStarted {
                     meeting_id: meeting.to_string(),
                     source: TranscriptSourceKind::LocalMac,
-                    mode: CaptureMode::MicAndSystem,
+                    mode: CaptureMode::System,
                 },
             )
             .unwrap();
@@ -661,6 +678,86 @@ mod tests {
             SourceFailureReason::ScreenRecordingPermissionDenied
         );
         assert_eq!(failure.lane, Some(AudioLane::SystemAudio));
+    }
+
+    #[test]
+    fn system_lane_failure_keeps_mic_capture_alive() {
+        // mic+system: the system lane fails (tap/permission) but the mic lane is
+        // expected and capturing, so the whole source must NOT be Failed — the mic
+        // keeps recording, the system lane shows failed, and a clean stop resolves
+        // to Stopped (not Failed).
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_sysfail_mic_alive";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::MicAndSystem,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::AUDIO_LEVEL,
+                None,
+                None,
+                &AudioLevel {
+                    meeting_id: meeting.to_string(),
+                    lane: AudioLane::Microphone,
+                    rms: 0.08,
+                    peak: Some(0.2),
+                    captured_ms: 1_000,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_FAILED,
+                None,
+                None,
+                &SourceFailed {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    reason: SourceFailureReason::SystemAudioPermissionDenied,
+                    lane: Some(AudioLane::SystemAudio),
+                    detail: None,
+                },
+            )
+            .unwrap();
+
+        let mid = store.projection(meeting).unwrap();
+        assert_ne!(
+            mid.source.status,
+            SourceStatus::Failed,
+            "mic keeps the capture alive when only the system lane failed"
+        );
+        assert!(mid.source.system_audio.failed);
+        assert!(!mid.source.microphone.failed);
+        assert!(mid.source.failure.is_some(), "the system failure is still surfaced");
+
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STOPPED,
+                None,
+                None,
+                &SourceStopped {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.projection(meeting).unwrap().source.status,
+            SourceStatus::Stopped
+        );
     }
 
     #[test]

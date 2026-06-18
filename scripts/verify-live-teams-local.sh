@@ -20,7 +20,7 @@ if [ "${STANDBY_LIVE_CAPTURE:-0}" != "1" ]; then
   exit 0
 fi
 
-./scripts/build-capture-helper.sh >/dev/null
+bash ./scripts/build-capture-helper.sh >/dev/null
 cargo build -p standbyd >/dev/null
 
 DB="$(mktemp -t standby-live.XXXXXX).db"

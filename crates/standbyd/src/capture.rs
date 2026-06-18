@@ -14,16 +14,37 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-/// Resolve the native helper binary. Defaults to the SIGNED `.app` bundle (the
-/// shipped helper), whose stable code-signing identity keeps the macOS TCC
-/// Microphone + System-Audio grants across rebuilds. `STANDBY_CAPTURE_HELPER`
-/// overrides it (e.g. the bare build binary for a quick mechanism check).
+/// Resolve the native helper binary. Defaults to the SIGNED standalone helper
+/// that the daemon can spawn and pipe safely. We still build a signed `.app` for
+/// LaunchServices / permission-grant experiments, but raw-execing the bundle
+/// executable can hang before Swift main on macOS 26.5.1. The standalone helper
+/// carries the same stable code-signing identity, so macOS TCC grants persist
+/// across rebuilds. `STANDBY_CAPTURE_HELPER` overrides it for experiments.
 pub fn helper_path() -> PathBuf {
     if let Ok(path) = std::env::var("STANDBY_CAPTURE_HELPER") {
         return PathBuf::from(path);
     }
+    default_helper_path()
+}
+
+fn default_helper_path() -> PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../native/StandbyCapture.app/Contents/MacOS/standby-capture-helper")
+        .join("../../native/standby-capture-helper/build/standby-capture-helper")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_helper_path;
+
+    #[test]
+    fn default_helper_path_is_signed_standalone_binary() {
+        let path = default_helper_path();
+        assert!(
+            path.ends_with("native/standby-capture-helper/build/standby-capture-helper"),
+            "unexpected helper path: {}",
+            path.display()
+        );
+    }
 }
 
 /// Start local-Mac capture for a meeting. Records `meeting.started`, spawns the

@@ -20,4 +20,4 @@ export STANDBY_LONGRUN_SECS="${STANDBY_MEETING_SECS:-600}"
 export STANDBY_LONGRUN_STALL_MAX="${STANDBY_LONGRUN_STALL_MAX:-5}"
 
 echo "ship gate: ${STANDBY_LONGRUN_SECS}s daemon-driven capture (clock-drift regime)…"
-exec ./scripts/verify-capture-longrun.sh
+exec bash ./scripts/verify-capture-longrun.sh

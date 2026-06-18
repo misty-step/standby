@@ -2,14 +2,16 @@
 # Compile + sign the native macOS capture/transcription helper.
 #
 # Produces TWO artifacts (both git-ignored):
-#   1. native/standby-capture-helper/build/standby-capture-helper — the bare
-#      binary, used by the deterministic file-based smokes (transcribe-file needs
-#      no TCC grant, so it stays unsigned for simplicity).
-#   2. native/StandbyCapture.app — the SHIPPED helper the daemon spawns for LIVE
-#      capture. It is signed with a STABLE code-signing identity (never ad-hoc),
-#      because macOS TCC keys the Microphone + System-Audio grants on the signing
-#      identity's designated requirement. Ad-hoc signing changes the cdhash every
-#      build, so the grants would evaporate on each rebuild (the dogfood trap).
+#   1. native/standby-capture-helper/build/standby-capture-helper — the SHIPPED
+#      helper the daemon spawns for live capture. It is signed with a STABLE
+#      code-signing identity (never ad-hoc), because macOS TCC keys the
+#      Microphone + System-Audio grants on the signing identity's designated
+#      requirement. Ad-hoc signing changes the cdhash every build, so grants
+#      evaporate on each rebuild (the dogfood trap).
+#   2. native/StandbyCapture.app — the same helper wrapped as an .app for
+#      LaunchServices / first-run permission-grant experiments. The daemon does
+#      not raw-exec the .app bundle executable: on macOS 26.5.1 that path can hang
+#      before Swift main. The signed standalone binary is the product path.
 #
 # Identity resolution order: $STANDBY_SIGN_IDENTITY → a Developer ID → an Apple
 # Development cert → any valid codesigning identity → a persistent self-signed
@@ -97,7 +99,21 @@ mkdir -p "$BUILD_DIR"
 echo "build-capture-helper: compiling $SRC"
 swiftc -O "$SRC" -o "$BIN"
 
-# 2. Assemble the .app bundle around the same compiled binary.
+# 2. Resolve (and if necessary create) a stable identity, then sign the
+#    standalone helper. This is the daemon-spawned product path.
+IDENTITY="$(resolve_identity)"
+if [ -z "$IDENTITY" ]; then
+  echo "build-capture-helper: no stable signing identity available and self-signed fallback failed" >&2
+  exit 4
+fi
+echo "build-capture-helper: signing $BIN with: $IDENTITY"
+codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --timestamp=none "$BIN"
+if codesign -dvv "$BIN" 2>&1 | grep -q "Signature=adhoc"; then
+  echo "build-capture-helper: refusing ad-hoc standalone helper — TCC grants would evaporate on rebuild" >&2
+  exit 5
+fi
+
+# 3. Assemble the .app bundle around the same signed binary.
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP_BIN"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -118,21 +134,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# 3. Sign the bundle with a stable identity. --timestamp=none keeps it offline
-#    (no Apple TSA round-trip); local execution needs no notarization.
-IDENTITY="$(resolve_identity)"
-if [ -z "$IDENTITY" ]; then
-  echo "build-capture-helper: no stable signing identity available and self-signed fallback failed" >&2
-  exit 4
-fi
+# 4. Sign the bundle with the same stable identity. --timestamp=none keeps it
+#    offline (no Apple TSA round-trip); local execution needs no notarization.
 echo "build-capture-helper: signing $APP with: $IDENTITY"
 codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --timestamp=none "$APP"
 
-# 4. Guard: refuse ad-hoc (the TCC-persistence invariant; verify.sh re-checks it).
+# 5. Guard: refuse ad-hoc (the TCC-persistence invariant; verify.sh re-checks it).
 if codesign -dvv "$APP" 2>&1 | grep -q "Signature=adhoc"; then
   echo "build-capture-helper: refusing ad-hoc signature — TCC grants would evaporate on rebuild" >&2
   exit 5
 fi
 
-echo "build-capture-helper: built $BIN (bare, for file smokes)"
-echo "build-capture-helper: built + signed $APP (shipped helper)"
+echo "build-capture-helper: built + signed $BIN (daemon helper)"
+echo "build-capture-helper: built + signed $APP (LaunchServices helper)"

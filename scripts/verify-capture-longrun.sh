@@ -35,11 +35,11 @@ mkdir -p "$EVIDENCE_DIR"
 # from the operator's shell (a paste-wrapped newline once broke spawn here).
 unset STANDBY_CAPTURE_HELPER || true
 
-./scripts/build-capture-helper.sh >/dev/null
+bash ./scripts/build-capture-helper.sh >/dev/null
 cargo build -p standbyd >/dev/null 2>&1
 
 # Match by executable name so we find the helper whether the daemon spawned the
-# signed .app bundle (the default) or the bare binary (via STANDBY_CAPTURE_HELPER).
+# signed standalone helper (the default) or another binary via STANDBY_CAPTURE_HELPER.
 HELPER_BIN="standby-capture-helper"
 DB="$(mktemp -t standby-longrun.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-longrun-jobs.XXXXXX)"

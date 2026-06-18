@@ -177,13 +177,14 @@ Wire/UI additions (additive): a `SourceFailureReason::SystemAudioPermissionDenie
 and a permission-tier field so the UI distinguishes "grant Microphone" from
 "grant System Audio Recording," each naming its exact Settings pane.
 
-Build: `scripts/build-capture-helper.sh` produces and signs the `.app` with a
-**stable code-signing identity** — a persistent self-signed certificate
-created/reused in the login keychain, or a Developer ID — **never ad-hoc**
-(`codesign --sign -`), whose per-build cdhash makes TCC forget the grant on every
-rebuild. It stamps both usage-description keys (`NSMicrophoneUsageDescription`,
-`NSAudioCaptureUsageDescription`) and a 14.4 deployment floor. The daemon's
-default `helper_path()` resolves the signed `.app` binary (no fragile env var);
+Build: `scripts/build-capture-helper.sh` produces a signed standalone helper and a
+signed `.app`, both with a **stable code-signing identity** — a persistent
+self-signed certificate created/reused in the login keychain, or a Developer ID —
+**never ad-hoc** (`codesign --sign -`), whose per-build cdhash makes TCC forget
+the grant on every rebuild. The `.app` stamps both usage-description keys
+(`NSMicrophoneUsageDescription`, `NSAudioCaptureUsageDescription`) and a 14.4
+deployment floor for LaunchServices / permission-grant experiments. The daemon's
+default `helper_path()` resolves the signed standalone binary (no fragile env var);
 `STANDBY_CAPTURE_HELPER` stays as an override.
 
 ADR: required after this slice — it commits Core Audio taps + the dual-permission
@@ -311,8 +312,9 @@ pre-emptive read.
   choose a run-loop-compatible structure rather than reintroducing `dispatchMain()`
   with main-actor dependencies.
 - **Rollout**: land behind the lane interface; keep ScreenCaptureKit selectable so
-  a tap regression can fall back. The signed `.app` becomes the default helper;
-  `STANDBY_CAPTURE_HELPER` stays as an override.
+  a tap regression can fall back. The signed standalone binary becomes the daemon
+  helper; the signed `.app` remains for LaunchServices permission-grant
+  experiments; `STANDBY_CAPTURE_HELPER` stays as an override.
 
 Stop conditions:
 - The long-run smoke still plateaus after the concurrency rewrite → the deadlock

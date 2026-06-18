@@ -10,20 +10,27 @@ cargo test --workspace
 # The native capture helper compiles, and transcription is real and unstubbed:
 # a deterministic on-device Apple Speech proof. (Live mic/system capture and the
 # browser UI-state checks are separate, permission/operator-gated smokes.)
-./scripts/build-capture-helper.sh
+bash ./scripts/build-capture-helper.sh
 
-# TCC-persistence guard: the SHIPPED helper (.app) must carry a STABLE signature,
+# TCC-persistence guard: the daemon-spawned helper must carry a STABLE signature,
 # never ad-hoc. Ad-hoc cdhash changes every build, so macOS forgets the Microphone
 # and System-Audio grants on each rebuild — the dogfood trap. Fail loudly here.
-SHIPPED_APP="native/StandbyCapture.app"
-if codesign -dvv "$SHIPPED_APP" 2>&1 | grep -q "Signature=adhoc"; then
-  echo "verify: shipped helper $SHIPPED_APP is ad-hoc signed; TCC grants would" >&2
-  echo "  evaporate on rebuild. Build with a stable identity (see build-capture-helper.sh)." >&2
-  exit 1
-fi
-codesign -dvv "$SHIPPED_APP" 2>&1 | grep -E "Authority=|TeamIdentifier=|Identifier=" | sed 's/^/  signing: /' || true
+SHIPPED_HELPER="native/standby-capture-helper/build/standby-capture-helper"
+LAUNCHSERVICES_APP="native/StandbyCapture.app"
+for artifact in "$SHIPPED_HELPER" "$LAUNCHSERVICES_APP"; do
+  if codesign -dvv "$artifact" 2>&1 | grep -q "Signature=adhoc"; then
+    echo "verify: helper artifact $artifact is ad-hoc signed; TCC grants would" >&2
+    echo "  evaporate on rebuild. Build with a stable identity (see build-capture-helper.sh)." >&2
+    exit 1
+  fi
+  codesign -dvv "$artifact" 2>&1 \
+    | grep -E "Authority=|TeamIdentifier=|Identifier=" \
+    | while IFS= read -r line; do
+        printf '  signing (%s): %s\n' "$artifact" "$line"
+      done || true
+done
 
-./scripts/verify-real-transcriber-smoke.sh
+bash ./scripts/verify-real-transcriber-smoke.sh
 
 npm --prefix ui run build
 cargo build -p standbyd

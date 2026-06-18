@@ -40,12 +40,13 @@ output-independent setups.
 - Never `kill -9` the capture helper — it skips Core Audio teardown and can degrade
   `coreaudiod` until `sudo killall coreaudiod`. SIGTERM (the daemon's stop path)
   tears down cleanly; the helper also self-heals leaked aggregates on startup.
-- The helper is signed with a stable Developer ID, so the TCC grants persist across
-  rebuilds.
+- The daemon-spawned helper is a signed standalone binary with a stable Developer
+  ID, so TCC grants persist across rebuilds. A signed `.app` is also built for
+  LaunchServices permission-grant experiments.
 
 ## Known follow-ups (not blocking)
-- The signed `.app`, launched DIRECTLY via `open`, can stall on some HAL states; the
-  product path (daemon-spawned) is unaffected. Worth hardening the tap setup so the
-  direct path is equally robust.
+- The signed `.app`, launched directly or raw-execed, can stall before the helper
+  reaches Swift main on some host states. The product path uses the signed
+  standalone helper instead.
 - Per-PID tap on the meeting app to further limit mic-bleed onto the system lane
   (infrastructure landed: `--tap-pid` / `STANDBY_TAP_PID`).

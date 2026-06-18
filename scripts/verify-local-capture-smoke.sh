@@ -12,7 +12,7 @@ EVIDENCE_DIR="docs/evidence/real-meeting"
 mkdir -p "$EVIDENCE_DIR"
 
 HELPER="${STANDBY_CAPTURE_HELPER:-native/standby-capture-helper/build/standby-capture-helper}"
-[ -x "$HELPER" ] || ./scripts/build-capture-helper.sh
+[ -x "$HELPER" ] || bash ./scripts/build-capture-helper.sh
 
 OUT_FILE="$EVIDENCE_DIR/local-capture-smoke.jsonl"
 "$HELPER" capture --mode mic+system --seconds 12 > "$OUT_FILE" 2>/dev/null &

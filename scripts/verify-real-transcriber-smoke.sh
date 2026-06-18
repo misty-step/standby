@@ -11,7 +11,7 @@ EVIDENCE_DIR="docs/evidence/real-meeting"
 mkdir -p "$EVIDENCE_DIR"
 
 HELPER="${STANDBY_CAPTURE_HELPER:-native/standby-capture-helper/build/standby-capture-helper}"
-[ -x "$HELPER" ] || ./scripts/build-capture-helper.sh
+[ -x "$HELPER" ] || bash ./scripts/build-capture-helper.sh
 
 PHRASE="the quick brown fox jumps over the lazy dog"
 SAMPLE="$(mktemp -t standby-transcriber.XXXXXX).aiff"

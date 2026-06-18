@@ -59,12 +59,15 @@ detected by **attempt-and-classify** (`kAudioHardwareNotPermittedError` /
 `'nope'` / `1852797029` → the tap-tier failure), never a pre-emptive read.
 
 ### 4. Stable code-signing identity for the shipped helper
-The shipped helper is the `.app` bundle, signed with a **stable identity**
+The shipped helper is a **signed standalone binary**, carrying a **stable identity**
 (Developer ID on this machine; a persistent self-signed cert in a dedicated keychain
 as the CI fallback) — **never ad-hoc**. Ad-hoc signing changes the cdhash every
 build, so macOS TCC forgets the Microphone and System-Audio grants on each rebuild.
 `build-capture-helper.sh` enforces this and `verify.sh` has a preflight that fails on
-`Signature=adhoc`. The daemon's default `helper_path()` resolves the signed `.app`.
+`Signature=adhoc`. The daemon's default `helper_path()` resolves the signed
+standalone binary. A signed `.app` is still built for LaunchServices /
+permission-grant experiments, but the daemon does not raw-exec the bundle
+executable because that path can stall before Swift main on macOS 26.5.1.
 
 ## Consequences
 

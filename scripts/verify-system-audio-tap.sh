@@ -6,8 +6,9 @@
 #
 # Plays a known phrase to the current output and asserts: the system lane goes
 # ACTIVE with nonzero RMS, and the phrase lands on the SYSTEM lane (not the mic).
-# Drives through the daemon because the signed .app, launched directly, can stall
-# on some HAL states; the daemon-spawned helper is the path the product uses.
+# Drives through the daemon and the signed standalone helper, which is the product
+# subprocess path. The signed .app is retained for LaunchServices permission-grant
+# experiments; raw-execing the bundle executable can stall before Swift main.
 #
 # Plays audio — run when you can hear sound, not mid-meeting. Honest FAIL if the
 # system lane never carries real audio (e.g. no grant for the tap AND no Screen
@@ -18,7 +19,7 @@ cd "$(dirname "$0")/.."
 EVIDENCE_DIR="docs/evidence/real-meeting"
 mkdir -p "$EVIDENCE_DIR"
 
-./scripts/build-capture-helper.sh >/dev/null
+bash ./scripts/build-capture-helper.sh >/dev/null
 cargo build -p standbyd >/dev/null 2>&1
 unset STANDBY_CAPTURE_HELPER || true
 

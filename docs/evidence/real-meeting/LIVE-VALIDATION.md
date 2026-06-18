@@ -1,58 +1,43 @@
-# Live validation — current state + the operator-gated steps
+# Live validation — current state + the one remaining operator step
 
-Updated after a live validation session. What's proven on this machine, and the
-exact steps left (all need your mic/speakers, a one-time permission, and — because
-of debug-run HAL pollution — one daemon restart).
+Updated after the live validation session. Almost everything is proven on this
+machine now; the single remaining gap for capturing *other participants* is one
+permission toggle.
 
 ## Proven on this machine ✅
-- **M1 deadlock fix** — `./scripts/verify-capture-longrun.sh` passed GREEN: 63 mic
-  level_events/60s, no plateau/stall, SIGTERM honored <3s, zero drops. The same
-  gate is RED on the pre-fix build (`deadlock-reproduction-before-fix.csv`). This
-  was the showstopper; it's fixed.
-- **Mic lane is clean standalone** — a 40s mic-only capture: 42 level_events, **0
-  drops**. Confirms the ~25% drops seen in the 10-min gate came specifically from
-  the system-tap's small-buffer load (now coalesced).
-- **Shipped `.app`** launches + transcribes (Developer ID signed, not ad-hoc).
-- All audio-free gates green (`verify.sh`, `verify-ui-states.sh`, `cargo test`).
+- **M1 deadlock fix** — `verify-capture-longrun.sh` GREEN (60s): 63 mic
+  level_events, no plateau/stall, SIGTERM <3s, zero drops. RED on the pre-fix
+  build (`deadlock-reproduction-before-fix.csv`).
+- **M5 ≥10-min ship gate** — GREEN: 661 mic events over 600s, **0 mic drops**
+  (was 1740 before the coalescing fix), system lane delivering 646 events, no
+  stall, SIGTERM <3s (`shipgate-10min-coalescing-pass.csv`). The deadlock fix
+  holds over a full meeting duration with zero degradation.
+- **Core Audio tap setup** — IOProc fires, `coalescing to 4096 frames` active,
+  frames flow output-independently. (HAL recovered from the debug-leak pollution.)
+- **Lane independence** — a system-lane failure/hang never kills the mic lane
+  (proven live against the wedged HAL + unit tests).
+- **Mic lane** clean standalone (0 drops); shipped `.app` launches + transcribes
+  (Developer ID signed); all audio-free gates green (`verify.sh`,
+  `verify-ui-states.sh`, `cargo test`).
 
-## Step 0 — clear the HAL (one-time, my fault) 🔧
-Debug runs that hung got `kill -9`'d, which skips Core Audio teardown and leaked
-tap state in the HAL; new tap setup now hangs (the helper fails honestly at 8s via
-its watchdog, but the tap won't run). Clear it:
-```
-sudo killall coreaudiod
-```
-(Briefly blips system audio ~1s. Caveat going forward: never `kill -9` the helper —
-SIGTERM tears the tap down cleanly; the helper also self-heals leaked aggregates on
-startup now.)
-
-## Step 1 — Core Audio tap captures system audio on any output 🎧
+## The one remaining step — grant the tap permission 🎧
+The tap delivers **silent** frames (`sysMaxRms: 0`) until macOS authorizes it.
+Open **System Settings → Privacy & Security → System Audio Recording** and enable
+**StandbyCapture** (tell me which entries appear — macOS attributes tap permission
+to a "responsible process," so it may show as StandbyCapture, Ghostty, or
+Terminal). Then:
 ```
 ./scripts/verify-system-audio-tap.sh
 ```
-The tap was confirmed to deliver frames (447 in the 10-min gate) and the IOProc
-fires; the remaining unknown is the **System Audio Recording** grant. First run
-will likely print CAPTURE-BLOCKED **or** show `sysMaxRms: 0` (silent frames) until
-granted. Grant it: **System Settings → Privacy & Security → System Audio Recording**
-→ enable **StandbyCapture** (note which entry appears — it may attribute to the
-terminal). Re-run; PASS = nonzero frames + the phrase on the system lane, audible
-while captured. This also validates the **coalescing** drop-fix on the system lane.
+PASS = nonzero frames + the played phrase transcribed on the system lane, audible
+while captured. (Set output to HDMI/Bluetooth first to prove output-independence.)
 
-## Step 2 — the ≥10-min ship gate (re-run) 📏
-```
-./scripts/verify-capture-meeting-duration.sh
-```
-Previously failed only on the mic-drop finding (now coalesced). Re-run confirms no
-drops over the full window. Silent, mic-only — no permission needed.
+## Optional — a real spoken dogfood 🗣️
+With the grant on, a real call (or `STANDBY_LIVE_CAPTURE=1 ./scripts/verify-live-teams-local.sh`)
+exercises the full path: your voice + system audio → transcript → proposal →
+worker artifact. The mic lane already captures your side today, permission or not.
 
-## Step 3 — a real spoken dogfood 🗣️
-With Step 0/1 done, the full path (your voice + system audio → transcript →
-proposal → worker artifact) via `STANDBY_LIVE_CAPTURE=1 ./scripts/verify-live-teams-local.sh`,
-or just talk during a real call. (A mic-only spoken run was wired and live but
-captured silence — no one spoke; if you speak and it still reads silent, check your
-input device isn't muted.)
-
-## Bottom line
-The deadlock that made Standby unusable is fixed and proven. The system-audio tap
-is implemented and was delivering frames; it needs a clean HAL + the one permission
-to finish proving. Ping me and I'll drive Steps 0–3 with you in ~5 minutes.
+## Note
+Avoid `kill -9` on the capture helper — it skips Core Audio teardown and leaks
+tap state in the HAL (cleared by `sudo killall coreaudiod`). SIGTERM tears down
+cleanly; the helper also self-heals leaked aggregates on startup.

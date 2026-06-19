@@ -1,0 +1,27 @@
+{
+  "status": "transcribing",
+  "failure": null,
+  "transcriptSegments": 2,
+  "firstTranscript": "Please include Google Meet Local Capture Behavior.",
+  "proposals": [],
+  "mic": {
+    "expected": true,
+    "active": true,
+    "last_rms": 0.0003540694,
+    "captured_ms": 19455,
+    "level_events": 19,
+    "dropped": 0,
+    "failed": false
+  },
+  "system_audio": {
+    "expected": true,
+    "active": true,
+    "last_rms": 0,
+    "captured_ms": 15000,
+    "level_events": 15,
+    "dropped": 0,
+    "failed": false
+  },
+  "jobs": [],
+  "artifacts": 0
+}

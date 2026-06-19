@@ -1,0 +1,16 @@
+{
+  "proposalStatus": "approved",
+  "jobs": [
+    {
+      "id": "job_18ba92c995a137a8_e63c_122",
+      "status": "completed",
+      "failure": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact_18ba92c99d8a2678_e63c_125",
+      "title": "Research request result"
+    }
+  ]
+}

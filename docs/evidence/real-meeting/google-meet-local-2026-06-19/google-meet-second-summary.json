@@ -1,0 +1,61 @@
+{
+  "status": "stopped",
+  "failure": null,
+  "transcriptSegments": 7,
+  "transcript": [
+    {
+      "speaker": "system_audio",
+      "text": "Please include Google Meet Local Capture Behavior."
+    },
+    {
+      "speaker": "system_audio",
+      "text": " This is a standby Google Meet Local Test with system audio playing while Chrome is in a call."
+    },
+    {
+      "speaker": "me",
+      "text": "Hmm, okay."
+    },
+    {
+      "speaker": "system_audio",
+      "text": "What already exists in the market for local 1st meeting tools?"
+    },
+    {
+      "speaker": "me",
+      "text": " Testing this out a little bit more."
+    },
+    {
+      "speaker": "system_audio",
+      "text": " Please research existing meeting agents, Google Meet capture tools, and local transcription products."
+    },
+    {
+      "speaker": "me",
+      "text": " Just a little bit more."
+    }
+  ],
+  "proposals": [
+    {
+      "id": "prop_18ba92af1baf4968_e63c_100",
+      "status": "proposed",
+      "title": "Research request",
+      "rationale": "Raised in the meeting: \"What already exists in the market for local 1st meeting tools?\""
+    }
+  ],
+  "mic": {
+    "expected": true,
+    "active": true,
+    "last_rms": 0.009397764,
+    "captured_ms": 21504,
+    "level_events": 40,
+    "dropped": 0,
+    "failed": false
+  },
+  "system_audio": {
+    "expected": true,
+    "active": true,
+    "last_rms": 0,
+    "captured_ms": 17000,
+    "level_events": 32,
+    "dropped": 0,
+    "failed": false
+  }
+}

@@ -44,6 +44,7 @@ cargo build -p standbyd
 VERIFY_EVIDENCE="$(mktemp -d -t standby-verify-evidence.XXXXXX)"
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/manual-proposal" bash ./scripts/verify-manual-proposal-request.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/ai-execution-security" bash ./scripts/verify-ai-execution-security.sh
+STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/model-worker-boundary" bash ./scripts/verify-model-worker-boundary.sh
 
 STANDBY_DB="$(mktemp -t standby-smoke.XXXXXX.db)"
 STANDBY_JOBS_DIR="$(mktemp -d -t standby-smoke-jobs.XXXXXX)"

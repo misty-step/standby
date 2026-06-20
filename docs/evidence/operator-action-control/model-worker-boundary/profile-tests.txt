@@ -1,0 +1,16 @@
+
+running 2 tests
+test worker::tests::by_id_gates_omp_research_until_global_network_opt_in ... ok
+test worker::tests::omp_research_profile_uses_isolated_home_and_tool_allowlist ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s

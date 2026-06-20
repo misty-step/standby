@@ -1,0 +1,8 @@
+{
+  "allow_network": false,
+  "allowed_tools": [],
+  "auth_env_keys": [],
+  "isolated_home": false,
+  "profile": "local-research",
+  "program": "bash"
+}

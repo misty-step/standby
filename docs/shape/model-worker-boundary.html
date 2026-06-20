@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standby 004: Model Worker Boundary</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    .plan .ae-bar,
+    .plan .ae-stage { width: min(92rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(24rem, 0.72fr); gap: 3rem; align-items: end; }
+    .grid-4, .grid-3, .grid-2 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.15rem 1.25rem; }
+    .wash { background: var(--ae-wash); }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1rem 0; }
+    @media (max-width: 920px) {
+      .plan .ae-bar, .plan .ae-stage { width: min(100% - 2rem, 92rem); }
+      .hero, .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ae-screen plan">
+    <header class="ae-bar">
+      <a class="ae-name" href="#">STANDBY / 004</a>
+      <p class="ae-chrome">Tool-capable model worker boundary</p>
+    </header>
+    <main class="ae-stage ae-stage-scroll">
+      <article class="ae-view">
+        <section class="hero">
+          <div>
+            <p class="ae-chrome">BACKLOG 004 / EXECUTION CONTRACT</p>
+            <h1 class="ae-strong">Add an opt-in OMP research worker without making meetings an exfiltration path.</h1>
+            <p class="ae-lede">Standby will gain a real model/tool worker profile for approved jobs, but the default remains the network-denied local worker. The worker can start only after global opt-in, deterministic approval, per-job network consent, prompt redaction, isolated home setup, and profile-policy verification.</p>
+          </div>
+          <aside class="ae-panel">
+            <h2 class="ae-h">CHOSEN DESIGN</h2>
+            <p><strong><code>omp-research</code></strong> launches <code>omp -p</code> with GLM 5.2 by default, a per-job home/session directory, forwarded provider auth keys only, and an explicit tool allowlist.</p>
+            <div class="rule"></div>
+            <h2 class="ae-h">QUALITY SYSTEM</h2>
+            <p>High-stakes boundary: live route replay, structural tests, sandbox negative test, evidence packet, and fresh-context security/architecture critic.</p>
+          </aside>
+        </section>
+
+        <section class="grid-4" style="margin-top: 2rem">
+          <article class="cell">
+            <h2 class="ae-h">STANDARDS</h2>
+            <p>Rust owns policy, approval, eventing, sandboxing, profile selection, and receipts. CLI flags are defense in depth, not the security boundary.</p>
+          </article>
+          <article class="cell">
+            <h2 class="ae-h">ACCEPTANCE</h2>
+            <p><code>omp-research</code> is ignored without global opt-in; with opt-in it still needs per-job consent and fails visibly when auth is absent.</p>
+          </article>
+          <article class="cell">
+            <h2 class="ae-h">VERIFY</h2>
+            <p><code>scripts/verify-model-worker-boundary.sh</code>, <code>scripts/verify-worker-sandbox.sh</code>, targeted Rust tests, and full <code>./scripts/verify.sh</code>.</p>
+          </article>
+          <article class="cell wash">
+            <h2 class="ae-h">STOP IF</h2>
+            <p>OMP cannot run noninteractively, needs user-home credential reads, requires write access outside scratch, or cannot disable unapproved tools.</p>
+          </article>
+        </section>
+
+        <section class="grid-3" style="margin-top: 1px">
+          <article class="cell">
+            <h2 class="ae-h">CURRENT STATE</h2>
+            <p>008 merged operator auth, per-job network consent, and prompt redaction. Existing cloud profiles are network-gated but not the desired OMP/GLM worker.</p>
+          </article>
+          <article class="cell">
+            <h2 class="ae-h">CHANGE SHAPE</h2>
+            <p>Add profile metadata for isolated home, static env, and allowed tools; implement <code>WorkerProfile::omp_research()</code>; add executable verifier receipts.</p>
+          </article>
+          <article class="cell wash">
+            <h2 class="ae-h">PROOF SURFACE</h2>
+            <p>Evidence lands in <code>docs/evidence/operator-action-control/model-worker-boundary/</code> with projections, receipts, and a JSON verdict.</p>
+          </article>
+        </section>
+
+        <section class="grid-2" style="margin-top: 2rem">
+          <article class="cell">
+            <h2 class="ae-h">NON-GOALS</h2>
+            <p>No default network worker. No repo mutation profile. No MCP marketplace. No browser/email/Slack/send tools. No weakening of the local worker gate.</p>
+          </article>
+          <article class="cell">
+            <h2 class="ae-h">CRITIC FOCUS</h2>
+            <p>Can transcript text reach an unapproved tool? Can the worker read user secrets? Can missing auth hang or disappear? Can profile fallback silently overclaim OMP execution?</p>
+          </article>
+        </section>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

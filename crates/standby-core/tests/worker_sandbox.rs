@@ -9,8 +9,36 @@ use standby_core::{
     AgentJobSpec, DeliverableSpec, EventStore, JobBudget, JobContext, JobStatus, PermissionProfile,
     WorkerKind, WorkerProfile, new_id, run_job,
 };
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
+
+struct EnvGuard {
+    key: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(key);
+        unsafe {
+            std::env::set_var(key, value);
+        }
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+}
 
 fn temp(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("standby-sbx-{tag}-{}", new_id("t")));
@@ -69,10 +97,15 @@ fn malicious_worker_cannot_mutate_repo_escape_scratch_or_send() {
     let scratch_root = temp("jobs");
     let escape = scratch_root.join("escape.txt"); // outside the per-job scratch dir
 
-    // A planted secret the worker will read and try to exfiltrate.
-    let secrets = temp("secret");
-    let secret = secrets.join("token.txt");
+    // A planted secret in a common home secret store. The worker receives the
+    // exact path and tries to read it; sandbox_profile must deny the read before
+    // network denial gets a chance to stop exfiltration.
+    let fake_home = temp("home");
+    let ssh_dir = fake_home.join(".ssh");
+    fs::create_dir_all(&ssh_dir).unwrap();
+    let secret = ssh_dir.join("id_rsa");
     fs::write(&secret, "SUPER-SECRET-TOKEN").unwrap();
+    let _home = EnvGuard::set("HOME", fake_home.to_str().unwrap());
 
     let store = EventStore::memory().unwrap();
     let job = queued_job("m_sbx");
@@ -128,6 +161,10 @@ fn malicious_worker_cannot_mutate_repo_escape_scratch_or_send() {
     assert!(
         !attempts.contains("ESCAPED"),
         "scratch escape must be denied, log: {attempts}"
+    );
+    assert!(
+        !attempts.contains("SECRET_READ"),
+        "common secret store reads must be denied, log: {attempts}"
     );
     assert!(
         !attempts.contains("SENT"),

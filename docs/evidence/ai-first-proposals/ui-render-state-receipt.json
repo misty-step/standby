@@ -1,0 +1,19 @@
+{
+  "proposal": {
+    "title": "Meeting follow-up task",
+    "provider": "recorded-model",
+    "model": "standby-recorded-proposal-v1",
+    "evidence_count": 2
+  },
+  "no_proposal": {
+    "reason": "model_returned_no_valid_proposals",
+    "provider": "recorded-model"
+  },
+  "event_types": [
+    "transcript.source.started",
+    "transcript.segment.final",
+    "proposal.created",
+    "proposal_request.created",
+    "proposal.not_created"
+  ]
+}

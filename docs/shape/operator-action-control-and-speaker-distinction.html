@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTML Plan: Operator-Controlled Proposals And Speaker Distinction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    :root { --ae-accent: #2442c7; --ae-accent-dark: #91a1ff; }
+    .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(92rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(24em, 0.74fr); gap: 3em; align-items: end; }
+    .grid-2, .grid-3, .grid-4 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.2em 1.35em; }
+    .wash { background: var(--ae-wash); }
+    .phase { display: grid; grid-template-columns: 9em minmax(0, 1fr) minmax(15em, 0.7fr); gap: 1.3em; border-top: 1px solid var(--ae-line); padding-top: 1em; margin-top: 1em; }
+    .phase:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1.4em 0; }
+    .table-wrap { overflow-x: auto; }
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(100% - 2rem, 92rem); }
+      .hero, .grid-2, .grid-3, .grid-4, .phase { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="../context-packets/operator-action-control-and-speaker-distinction.md">PLAN / STANDBY</a>
+    <p class="ae-chrome">operator action control + speaker attribution</p>
+  </header>
+
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero" aria-label="Plan contract">
+        <div>
+          <p class="ae-chrome">CONTEXT PACKET / LIVE TEAMS DOGFOOD FOLLOW-UP</p>
+          <h1 class="ae-strong">Give the operator an intentional proposal prompt and stop flattening multi-person calls into one speaker.</h1>
+          <p class="ae-lede">Chosen design: add an Ask Standby request path that creates evidence-cited proposal cards, preserve explicit approval before any job runs, and add a speaker-attribution seam so remote participants can become stable labels instead of one undifferentiated system-audio bucket.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">CHOSEN DESIGN</h2>
+          <p><strong>First:</strong> operator prompt -> proposal request event -> one to three proposal cards -> existing approval/job/report path.</p>
+          <p><strong>Second:</strong> speaker attribution seam with a verified source of stable remote speaker keys.</p>
+          <p><strong>Gated:</strong> OMP/GLM/MCP worker profile only after egress, tools, secrets, and scratch boundaries are executable.</p>
+          <div class="rule"></div>
+          <h2 class="ae-h">PROOF</h2>
+          <p><code>verify-manual-proposal-request.sh</code>, <code>verify-speaker-distinction-fixture.sh</code>, full <code>./scripts/verify.sh</code>, and gated live Teams QA.</p>
+          <div class="rule"></div>
+          <p class="ae-dim">Premise: <code>sha256:37d5175c2f2d7976f48567ec78daef8351dd4505692a879cf3d01ad5b78c0da0</code></p>
+          <p class="ae-dim">Rendered-open waiver: authored during live Teams capture; open before implementation when not in-call.</p>
+        </aside>
+      </section>
+
+      <section class="grid-4" aria-label="Executive contract" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ACCEPTANCE</h2>
+          <p>Typed operator request creates proposal cards with cited transcript context; approval runs a visible worker job with receipt.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">SPEAKERS</h2>
+          <p>A fixture with multiple remote speakers does not collapse to a single <code>system_audio</code> label.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">SAFETY</h2>
+          <p>No transcript or chat text executes directly. Network/model workers remain opt-in until sandbox and egress proof pass.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">STOP IF</h2>
+          <p>No executable oracle, no stable speaker key source, or worker profile needs broad network/tools without proof.</p>
+        </article>
+      </section>
+
+      <section class="grid-3" aria-label="Current state" style="margin-top: 1px">
+        <article class="cell">
+          <h2 class="ae-h">CURRENT STATE</h2>
+          <p>Teams live capture transcribes locally. Projection speaker labels in the observed Teams run were only <code>system_audio</code>.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">CHANGE SHAPE</h2>
+          <p>Add one operator request route, one UI input/control surface, evented proposal-request data, and speaker-attribution projection support.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">NOT IN FIRST CUT</h2>
+          <p>No default OMP/GLM/MCP worker, no auto-execution, no fake participant names, no raw transcript/audio persistence.</p>
+        </article>
+      </section>
+
+      <section class="grid-2" aria-label="Scope and anchors" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">REPO ANCHORS</h2>
+          <p><code>crates/standby-core/src/engine.rs</code> - proposal generation and cited evidence.</p>
+          <p><code>crates/standby-core/src/domain.rs</code> - proposal, worker, transcript, event schemas.</p>
+          <p><code>crates/standby-core/src/transcript_source.rs</code> - helper speaker labels and normalization.</p>
+          <p><code>crates/standby-core/src/worker.rs</code> - sandboxed worker profiles.</p>
+          <p><code>crates/standbyd/src/main.rs</code> and <code>ui/src/main.tsx</code> - routes and operator surface.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">INVARIANTS</h2>
+          <p>Approval stays deterministic and server-owned. Transcript text remains evidence, not instruction. Every proposal request, proposal, job transition, artifact, and failure is evented. Labels must state uncertainty.</p>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Execution plan" style="margin-top: 2em">
+        <h2 class="ae-h">EXECUTION PLAN</h2>
+        <div class="phase">
+          <strong class="ae-accent">1 frame</strong>
+          <p>Confirm proposal-request event schema, recent transcript window semantics, and speaker key model.</p>
+          <p class="ae-dim">Evidence: schema diff and packet anchors re-read.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">2 build Ask</strong>
+          <p>Add route, event, UI box, and proposal cards that cite operator message plus transcript spans.</p>
+          <p class="ae-dim">Evidence: request replay creates cards; approval runs local worker to receipt.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">3 build speakers</strong>
+          <p>Add speaker-attribution seam and one verified source for stable remote speaker keys.</p>
+          <p class="ae-dim">Evidence: fixture fails if all remote speakers collapse to system_audio.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">4 gate</strong>
+          <p>Run focused scripts, full verification, rendered UI check, and gated live Teams QA.</p>
+          <p class="ae-dim">Evidence: docs/evidence/operator-action-control/ packet.</p>
+        </div>
+      </section>
+
+      <section class="grid-2" aria-label="Alternatives and risks" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ALTERNATIVES</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>option</th><th>helps</th><th>fails</th><th>verdict</th></tr></thead>
+              <tbody>
+                <tr><td class="ae-item">Ask Standby cards</td><td>operator control</td><td>needs proposal-quality guard</td><td>choose</td></tr>
+                <tr><td class="ae-item">direct chat agent</td><td>fast UX</td><td>bypasses approval invariant</td><td>reject</td></tr>
+                <tr><td class="ae-item">local diarization</td><td>local-first speaker buckets</td><td>not names; hard to grade</td><td>choose if fixture-gradeable</td></tr>
+                <tr><td class="ae-item">provider transcript</td><td>real names</td><td>app-specific auth/vendor path</td><td>defer</td></tr>
+                <tr><td class="ae-item">OMP/GLM default</td><td>real model worker</td><td>egress/tool exfil risk</td><td>gate separately</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">REVIEW FOCUS</h2>
+          <p>Public surface: does the request route and UI feel like an approval workflow, not a chat agent?</p>
+          <p>Human workflow: can a live-call operator create, approve, and monitor work without hidden state?</p>
+          <p>Operations: would bad proposal quality, failed worker auth, or speaker-collapse be visible in evidence?</p>
+        </article>
+      </section>
+    </article>
+  </main>
+</div>
+</body>
+</html>

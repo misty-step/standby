@@ -100,7 +100,10 @@ fn malicious_worker_cannot_mutate_repo_escape_scratch_or_send() {
         "sandbox must prevent repo mutation"
     );
     // 2. No write escaped the per-job scratch.
-    assert!(!escape.exists(), "sandbox must prevent writes outside scratch");
+    assert!(
+        !escape.exists(),
+        "sandbox must prevent writes outside scratch"
+    );
 
     // 3. The worker still produced a visible job event.
     let projection = store.projection("m_sbx").unwrap();

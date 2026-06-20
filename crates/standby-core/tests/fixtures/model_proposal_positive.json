@@ -1,0 +1,19 @@
+{
+  "provider": "recorded-model",
+  "model": "fixture-proposal-v1",
+  "mode": "recorded_fixture",
+  "reasoning_summary": "The operator is asking for a local-first meeting assistant market map, and the transcript contains relevant context spans.",
+  "proposals": [
+    {
+      "kind": "research",
+      "title": "Map local-first meeting assistants",
+      "rationale": "The call asks for a landscape of local-first meeting assistant products and gaps.",
+      "draft_prompt": "Research local-first meeting assistant products and open-source projects. Use the cited meeting spans as context, cite sources, and summarize gaps for a local-first Standby product.",
+      "evidence_segment_ids": ["s0", "s1"],
+      "evidence_indexes": [],
+      "suggested_worker": "research_agent",
+      "confidence": 0.91
+    }
+  ],
+  "no_proposal_reason": null
+}

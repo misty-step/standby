@@ -1,0 +1,8 @@
+{
+  "provider": "recorded-model",
+  "model": "fixture-proposal-v1",
+  "mode": "recorded_fixture",
+  "reasoning_summary": "The transcript is coordination chatter without delegated work.",
+  "proposals": [],
+  "no_proposal_reason": "low_actionability"
+}

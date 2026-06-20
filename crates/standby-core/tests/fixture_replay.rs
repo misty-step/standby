@@ -1,12 +1,18 @@
 //! Replays a local-capture-shaped JSONL fixture through the same normalization
 //! path the live daemon uses, asserting partial/final ordering, dedupe,
-//! evidence-cited proposal detection, and projection stability — all without
+//! evidence-cited proposal-agent output, and projection stability — all without
 //! macOS permissions or a live call.
 
-use standby_core::{EventStore, HelperEvent, LocalMacAudioSource, ProposalKind, TranscriptSourceKind};
+use standby_core::{
+    EventStore, HelperEvent, LocalMacAudioSource, ProposalKind, TranscriptSourceKind,
+};
 
 fn replay(meeting: &str) -> EventStore {
     let fixture = include_str!("fixtures/local_capture_meeting.jsonl");
+    replay_fixture(meeting, fixture)
+}
+
+fn replay_fixture(meeting: &str, fixture: &str) -> EventStore {
     let store = EventStore::memory().expect("memory store");
     for line in fixture.lines() {
         if let Some(event) = HelperEvent::parse_line(line) {
@@ -53,12 +59,29 @@ fn fixture_creates_one_evidence_cited_proposal() {
     let store = replay(meeting);
     let projection = store.projection(meeting).expect("projection");
 
-    assert_eq!(projection.proposals.len(), 1, "exactly one proposal (deduped)");
+    assert_eq!(
+        projection.proposals.len(),
+        1,
+        "exactly one proposal (deduped)"
+    );
     let proposal = &projection.proposals[0];
     assert_eq!(proposal.kind, ProposalKind::Research);
+    assert_eq!(
+        proposal.model.as_ref().map(|model| model.provider.as_str()),
+        Some("recorded-model"),
+        "fixture proposal must come from recorded model output"
+    );
     assert!(
-        proposal.evidence.len() >= 2,
-        "proposal must cite at least two transcript segments"
+        !proposal.evidence.is_empty(),
+        "proposal must cite transcript evidence"
+    );
+    assert!(
+        proposal
+            .evidence
+            .iter()
+            .any(|evidence| evidence.text.contains("already exists")
+                || evidence.text.contains("research sweep")),
+        "proposal must cite the triggering research request"
     );
 
     // Every cited evidence segment id resolves to a real transcript segment.
@@ -82,4 +105,36 @@ fn projection_is_stable_across_replays() {
     let pb = b.projection("stable_b").unwrap();
     assert_eq!(pa.transcript.len(), pb.transcript.len());
     assert_eq!(pa.proposals.len(), pb.proposals.len());
+}
+
+#[test]
+fn speaker_distinction_fixture_preserves_remote_speakers() {
+    let meeting = "speaker_distinction";
+    let fixture = include_str!("fixtures/speaker_distinction_meeting.jsonl");
+    let store = replay_fixture(meeting, fixture);
+    let projection = store.projection(meeting).expect("projection");
+
+    let speakers: Vec<_> = projection
+        .transcript
+        .iter()
+        .filter_map(|segment| segment.speaker.as_deref())
+        .collect();
+    assert!(speakers.contains(&"remote_1"));
+    assert!(speakers.contains(&"remote_2"));
+    assert!(
+        projection
+            .proposals
+            .iter()
+            .flat_map(|proposal| proposal.evidence.iter())
+            .any(|evidence| evidence.speaker.as_deref() == Some("remote_1")),
+        "proposal evidence should retain the triggering remote speaker"
+    );
+    assert!(
+        speakers
+            .iter()
+            .filter(|speaker| **speaker != "me" && **speaker != "system_audio")
+            .count()
+            >= 2,
+        "remote speakers must not collapse to system_audio"
+    );
 }

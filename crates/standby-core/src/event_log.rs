@@ -1,8 +1,8 @@
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
-    MeetingEvent, MeetingProjection, Proposal, SourceFailed, SourceFailure, SourceStarted,
-    SourceState, SourceStatus, TranscriptSegment, TranscriptSourceKind, event_types, new_id,
-    now_rfc3339ish,
+    MeetingEvent, MeetingProjection, NoProposal, Proposal, ProposalRequest, SourceFailed,
+    SourceFailure, SourceStarted, SourceState, SourceStatus, TranscriptSegment,
+    TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
 };
 use anyhow::{Context, Result};
 use rusqlite::types::Type;
@@ -102,6 +102,8 @@ impl EventStore {
     pub fn projection(&self, meeting_id: &str) -> Result<MeetingProjection> {
         let events = self.list_events(meeting_id)?;
         let mut transcript = Vec::new();
+        let mut proposal_requests = Vec::new();
+        let mut no_proposals = Vec::new();
         let mut proposals = Vec::new();
         let mut jobs = Vec::new();
         let mut artifacts = Vec::new();
@@ -213,6 +215,12 @@ impl EventStore {
                     // No ghost partial under a stopped meeting.
                     partial = None;
                 }
+                event_types::PROPOSAL_REQUEST_CREATED => {
+                    proposal_requests.push(decode::<ProposalRequest>(&event.payload_json)?);
+                }
+                event_types::PROPOSAL_NOT_CREATED => {
+                    no_proposals.push(decode::<NoProposal>(&event.payload_json)?);
+                }
                 event_types::PROPOSAL_CREATED
                 | event_types::PROPOSAL_APPROVED
                 | event_types::PROPOSAL_IGNORED => {
@@ -239,6 +247,8 @@ impl EventStore {
             transcript,
             partial,
             source,
+            proposal_requests,
+            no_proposals,
             proposals,
             jobs,
             artifacts,
@@ -524,7 +534,13 @@ mod tests {
                 event_types::SEGMENT_PARTIAL,
                 None,
                 None,
-                &seg(meeting, "s1", "lets research", false, TranscriptSourceKind::LocalMac),
+                &seg(
+                    meeting,
+                    "s1",
+                    "lets research",
+                    false,
+                    TranscriptSourceKind::LocalMac,
+                ),
             )
             .unwrap();
 
@@ -592,7 +608,13 @@ mod tests {
                 event_types::SEGMENT_PARTIAL,
                 None,
                 None,
-                &seg(meeting, "p1", "half a senten", false, TranscriptSourceKind::LocalMac),
+                &seg(
+                    meeting,
+                    "p1",
+                    "half a senten",
+                    false,
+                    TranscriptSourceKind::LocalMac,
+                ),
             )
             .unwrap();
         assert!(store.projection(meeting).unwrap().partial.is_some());
@@ -610,7 +632,10 @@ mod tests {
             )
             .unwrap();
         let projection = store.projection(meeting).unwrap();
-        assert!(projection.partial.is_none(), "no ghost partial under a stopped meeting");
+        assert!(
+            projection.partial.is_none(),
+            "no ghost partial under a stopped meeting"
+        );
         assert_eq!(projection.source.status, SourceStatus::Stopped);
     }
 
@@ -740,7 +765,10 @@ mod tests {
         );
         assert!(mid.source.system_audio.failed);
         assert!(!mid.source.microphone.failed);
-        assert!(mid.source.failure.is_some(), "the system failure is still surfaced");
+        assert!(
+            mid.source.failure.is_some(),
+            "the system failure is still surfaced"
+        );
 
         store
             .append(
@@ -774,6 +802,7 @@ mod tests {
             suggested_worker: WorkerKind::ResearchAgent,
             confidence: 0.84,
             status: ProposalStatus::Proposed,
+            model: None,
         };
 
         store

@@ -1,0 +1,7 @@
+{"type":"source.started","mode":"mic+system","mic":true,"system":true}
+{"type":"audio.level","lane":"system_audio","rms":0.08,"peak":0.5,"captured_ms":1000}
+{"type":"segment.partial","lane":"system_audio","speaker":"remote_1","text":"can someone research"}
+{"type":"segment.final","lane":"system_audio","speaker":"remote_1","text":"Can someone research the prior art for local-first meeting tools?"}
+{"type":"segment.final","lane":"system_audio","speaker":"remote_2","text":"Include open-source projects and recent productized meeting assistants."}
+{"type":"segment.final","lane":"microphone","speaker":"me","text":"Great. Use this call as context and keep it concise."}
+{"type":"source.stopped"}

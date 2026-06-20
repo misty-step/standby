@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 # Rust unit + integration tests (includes the transcript-fixture replay and the
 # worker-sandbox containment negative test).
 cargo test --workspace
+bash ./scripts/verify-model-proposals.sh
 
 # The native capture helper compiles, and transcription is real and unstubbed:
 # a deterministic on-device Apple Speech proof. (Live mic/system capture and the
@@ -34,6 +35,14 @@ bash ./scripts/verify-real-transcriber-smoke.sh
 
 npm --prefix ui run build
 cargo build -p standbyd
+
+# New proposal-request public API: operator message + transcript context creates
+# an evented proposal card, then approval runs the existing out-of-request worker
+# path. This is API-only, so it belongs in the default gate; browser UI smokes
+# remain separate. Write transient evidence so the default gate does not dirty
+# tracked docs evidence.
+VERIFY_EVIDENCE="$(mktemp -d -t standby-verify-evidence.XXXXXX)"
+STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/manual-proposal" bash ./scripts/verify-manual-proposal-request.sh
 
 STANDBY_DB="$(mktemp -t standby-smoke.XXXXXX.db)"
 STANDBY_JOBS_DIR="$(mktemp -d -t standby-smoke-jobs.XXXXXX)"

@@ -1,0 +1,21 @@
+{
+  "meeting_id": "live-model",
+  "proposal": {
+    "id": "prop_18baaa15729263a0_e10a_7",
+    "title": "Research local-first meeting assistant market and gaps",
+    "confidence": 0.93,
+    "model": {
+      "provider": "openai",
+      "model": "gpt-5.5",
+      "mode": "responses_api",
+      "reasoning_summary": "The request is explicit and low-noise: turn the provided customer question into a research task proposal about the local-first meeting assistant market."
+    },
+    "evidence_count": 1
+  },
+  "event_types": [
+    "transcript.source.started",
+    "transcript.segment.final",
+    "proposal_request.created",
+    "proposal.created"
+  ]
+}

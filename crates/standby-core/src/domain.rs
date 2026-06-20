@@ -43,6 +43,14 @@ pub enum ProposalStatus {
     Ignored,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalContextWindow {
+    #[default]
+    Recent,
+    Full,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
@@ -280,6 +288,25 @@ impl From<&TranscriptSegment> for TranscriptEvidence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProposalRequest {
+    pub id: String,
+    pub meeting_id: String,
+    pub message: String,
+    pub context_window: ProposalContextWindow,
+    pub max_proposals: u8,
+    pub transcript_spans: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProposalModelMetadata {
+    pub provider: String,
+    pub model: String,
+    pub mode: String,
+    #[serde(default)]
+    pub reasoning_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Proposal {
     pub id: String,
     pub meeting_id: String,
@@ -291,6 +318,19 @@ pub struct Proposal {
     pub suggested_worker: WorkerKind,
     pub confidence: f32,
     pub status: ProposalStatus,
+    #[serde(default)]
+    pub model: Option<ProposalModelMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct NoProposal {
+    pub id: String,
+    pub meeting_id: String,
+    pub reason: String,
+    pub transcript_spans: Vec<String>,
+    #[serde(default)]
+    pub operator_message: Option<String>,
+    pub model: ProposalModelMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -381,6 +421,10 @@ pub struct MeetingProjection {
     /// Honest capture state for the meeting (status, lanes, failure).
     #[serde(default)]
     pub source: SourceState,
+    #[serde(default)]
+    pub proposal_requests: Vec<ProposalRequest>,
+    #[serde(default)]
+    pub no_proposals: Vec<NoProposal>,
     pub proposals: Vec<Proposal>,
     pub jobs: Vec<AgentJobSpec>,
     pub artifacts: Vec<Artifact>,
@@ -419,6 +463,8 @@ pub mod event_types {
     pub const AUDIO_DROPPED: &str = "audio.source.dropped";
     pub const SEGMENT_PARTIAL: &str = "transcript.segment.partial";
     pub const SEGMENT_FINAL: &str = "transcript.segment.final";
+    pub const PROPOSAL_REQUEST_CREATED: &str = "proposal_request.created";
+    pub const PROPOSAL_NOT_CREATED: &str = "proposal.not_created";
     pub const PROPOSAL_CREATED: &str = "proposal.created";
     pub const PROPOSAL_APPROVED: &str = "proposal.approved";
     pub const PROPOSAL_IGNORED: &str = "proposal.ignored";

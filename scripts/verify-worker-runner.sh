@@ -58,10 +58,18 @@ node -e '
   const j=p.jobs[p.jobs.length-1];
   console.log("final job status:", j.status, "profile:", j.profile, "reason:", j.failure_reason||"-");
   if(j.status==="failed"){
-    // Honest outcome for a real CLI without auth; require a receipt, not a spinner.
+    if((j.profile||"local-research")==="local-research"){
+      console.error("FAIL: deterministic local-research worker failed:", j.error||j.failure_reason||"unknown");
+      process.exit(6)
+    }
+    // Honest outcome for an opt-in real CLI without auth; require a receipt, not a spinner.
     if(!j.receipt_path){console.error("FAIL: failed job has no receipt");process.exit(6)}
     console.log("worker failed visibly with receipt:", j.receipt_path);
     process.exit(0);
+  }
+  if(j.status!=="completed"){
+    console.error("FAIL: job reached unexpected terminal status:", j.status);
+    process.exit(8)
   }
   const a=p.artifacts[0];
   if(!a){console.error("FAIL: completed job produced no artifact");process.exit(5)}

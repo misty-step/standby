@@ -112,8 +112,10 @@ impl WorkerProfile {
                 .unwrap_or_else(|_| repo_root.join("scripts/workers/local-research-worker.sh"));
             Self::local_research(&script)
         };
-        let network_workers_enabled =
-            std::env::var("STANDBY_ALLOW_NETWORK_WORKER").ok().as_deref() == Some("1");
+        let network_workers_enabled = std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
+            .ok()
+            .as_deref()
+            == Some("1");
         match id {
             "claude-research" if network_workers_enabled => Self::claude_research(),
             "pi-research" if network_workers_enabled => Self::pi_research(),
@@ -240,7 +242,9 @@ pub fn sandbox_profile(scratch_canonical: &Path, allow_network: bool) -> String 
             "Library/Keychains",
             ".docker/config.json",
         ] {
-            deny_reads.push_str(&format!("(deny file-read* (subpath \"{home}/{secret}\"))\n"));
+            deny_reads.push_str(&format!(
+                "(deny file-read* (subpath \"{home}/{secret}\"))\n"
+            ));
         }
     }
     format!(
@@ -316,6 +320,22 @@ pub fn run_job(
         &running,
     )?;
 
+    if profile.allow_network
+        && std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
+            .ok()
+            .as_deref()
+            != Some("1")
+    {
+        return finish_failed(
+            store,
+            job,
+            profile,
+            JobFailureReason::Unknown,
+            "network-enabled worker profile rejected; set STANDBY_ALLOW_NETWORK_WORKER=1 to opt in",
+            "",
+        );
+    }
+
     // Fallible setup. On any error, record a terminal failure instead of bubbling
     // up with no further event. Scratch is canonicalized so the sandbox subpath
     // matches the kernel's resolved path (e.g. /tmp -> /private/tmp).
@@ -346,6 +366,16 @@ pub fn run_job(
             );
         }
     };
+    let mut launching = running.clone();
+    launching.progress_note = Some(format!("sandbox ready; launching {}", profile.id));
+    store.append(
+        &job.meeting_id,
+        event_types::JOB_PROGRESS,
+        job.proposal_id.as_deref(),
+        None,
+        &launching,
+    )?;
+
     let stdout_path = job_dir.join("stdout.log");
     let stderr_path = job_dir.join("stderr.log");
     let receipt = stdout_path.display().to_string();
@@ -562,7 +592,7 @@ pub fn default_scratch_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProposalEngine, demo_meeting_segments};
+    use crate::{ProposalAgent, ProposalAgentInput, demo_meeting_segments};
     use std::io::Write;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -573,8 +603,20 @@ mod tests {
 
     fn approved_job(store: &EventStore, meeting: &str) -> AgentJobSpec {
         let segments = demo_meeting_segments(meeting);
-        let proposal =
-            ProposalEngine::detect_research_proposal(meeting, &segments, &[]).expect("proposal");
+        let proposal = ProposalAgent::recorded()
+            .propose(ProposalAgentInput {
+                meeting_id: meeting,
+                transcript: &segments,
+                existing: &[],
+                operator_message: None,
+                transcript_spans: &[],
+                max_proposals: 1,
+            })
+            .expect("proposal decision")
+            .proposals
+            .into_iter()
+            .next()
+            .expect("proposal");
         approve_proposal(store, &proposal, "tester", None, "local-research").unwrap()
     }
 
@@ -604,6 +646,11 @@ mod tests {
         assert_eq!(projection.jobs[0].status, JobStatus::Completed);
         assert_eq!(projection.artifacts.len(), 1);
         assert!(projection.artifacts[0].summary.contains("Briefing for"));
+        assert!(
+            store
+                .has_event_type(meeting, event_types::JOB_PROGRESS)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -616,7 +663,11 @@ mod tests {
         assert_eq!(projection.jobs.len(), 1);
         assert_eq!(projection.jobs[0].status, JobStatus::Queued);
         assert!(projection.artifacts.is_empty());
-        assert!(!store.has_event_type(meeting, event_types::JOB_STARTED).unwrap());
+        assert!(
+            !store
+                .has_event_type(meeting, event_types::JOB_STARTED)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -632,16 +683,63 @@ mod tests {
         assert_eq!(status, JobStatus::Failed);
         let projection = store.projection(meeting).unwrap();
         assert_eq!(projection.jobs[0].status, JobStatus::Failed);
-        assert!(store.has_event_type(meeting, event_types::JOB_STARTED).unwrap());
-        assert!(store.has_event_type(meeting, event_types::JOB_FAILED).unwrap());
+        assert!(
+            store
+                .has_event_type(meeting, event_types::JOB_STARTED)
+                .unwrap()
+        );
+        assert!(
+            store
+                .has_event_type(meeting, event_types::JOB_FAILED)
+                .unwrap()
+        );
         assert!(projection.jobs[0].failure_reason.is_some());
+    }
+
+    #[test]
+    fn run_job_rejects_network_profile_without_opt_in() {
+        if std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
+            .ok()
+            .as_deref()
+            == Some("1")
+        {
+            return; // opt-in is active in this environment; skip
+        }
+
+        let meeting = "m_network_profile_gate";
+        let store = EventStore::memory().unwrap();
+        let job = approved_job(&store, meeting);
+        let profile = WorkerProfile::custom(
+            "network-test",
+            "bash",
+            vec!["-lc".to_string(), "echo should-not-run".to_string()],
+            true,
+        );
+        let status = run_job(&store, &job, &profile, &temp_dir("network-gate")).unwrap();
+
+        assert_eq!(status, JobStatus::Failed);
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.jobs[0].status, JobStatus::Failed);
+        assert_eq!(projection.jobs[0].profile.as_deref(), Some("network-test"));
+        assert!(
+            projection.jobs[0]
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("network-enabled worker profile rejected")
+        );
+        assert!(projection.artifacts.is_empty());
     }
 
     #[test]
     fn by_id_defaults_to_network_denied_local_profile() {
         // Without the explicit opt-in, even a cloud id must resolve to the safe
         // network-denied local profile.
-        if std::env::var("STANDBY_ALLOW_NETWORK_WORKER").ok().as_deref() == Some("1") {
+        if std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
+            .ok()
+            .as_deref()
+            == Some("1")
+        {
             return; // opt-in is active in this environment; skip
         }
         let profile = WorkerProfile::by_id("claude-research", Path::new("/repo"));

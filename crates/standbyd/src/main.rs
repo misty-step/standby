@@ -9,8 +9,9 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
     AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource,
-    Meeting, MeetingProjection, ProposalEngine, ProposalStatus, WorkerProfile, approve_proposal,
-    default_scratch_root, demo_meeting_segments, emit_job_failed, event_types, run_job,
+    Meeting, MeetingProjection, ProposalAgentRun, ProposalContextWindow, ProposalRequestEngine,
+    ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root, demo_meeting_segments,
+    emit_job_failed, event_types, propose_from_meeting_context, run_job, run_proposal_agent,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -41,6 +42,14 @@ pub(crate) struct QueuedJob {
 struct ApproveRequest {
     approved_by: Option<String>,
     prompt: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProposalRequestInput {
+    message: String,
+    #[serde(default)]
+    context_window: ProposalContextWindow,
+    max_proposals: Option<u8>,
 }
 
 #[tokio::main]
@@ -79,9 +88,19 @@ fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/meetings/{meeting_id}/demo", post(start_demo))
-        .route("/api/meetings/{meeting_id}/capture/start", post(capture_start))
-        .route("/api/meetings/{meeting_id}/capture/stop", post(capture_stop))
+        .route(
+            "/api/meetings/{meeting_id}/capture/start",
+            post(capture_start),
+        )
+        .route(
+            "/api/meetings/{meeting_id}/capture/stop",
+            post(capture_stop),
+        )
         .route("/api/meetings/{meeting_id}/seed", post(seed_capture))
+        .route(
+            "/api/meetings/{meeting_id}/proposal-requests",
+            post(create_proposal_request),
+        )
         .route("/api/meetings/{meeting_id}", get(meeting_projection))
         .route("/api/meetings/{meeting_id}/events", get(meeting_projection))
         .route("/api/proposals/{proposal_id}/approve", post(approve))
@@ -118,21 +137,8 @@ async fn start_demo(
         }
     }
 
-    let projection = store.projection(&meeting_id)?;
     if !store.has_event_type(&meeting_id, event_types::PROPOSAL_CREATED)? {
-        if let Some(proposal) = ProposalEngine::detect_research_proposal(
-            &meeting_id,
-            &projection.transcript,
-            &projection.proposals,
-        ) {
-            store.append(
-                &meeting_id,
-                event_types::PROPOSAL_CREATED,
-                Some(&proposal.id),
-                None,
-                &proposal,
-            )?;
-        }
+        propose_from_meeting_context(&store, &meeting_id)?;
     }
 
     Ok(Json(store.projection(&meeting_id)?))
@@ -218,7 +224,10 @@ async fn seed_capture(
                     None,
                     &Meeting {
                         id: meeting_id.clone(),
-                        title: value.get("title").and_then(|t| t.as_str()).map(String::from),
+                        title: value
+                            .get("title")
+                            .and_then(|t| t.as_str())
+                            .map(String::from),
                         mode: value
                             .get("mode")
                             .and_then(|m| m.as_str())
@@ -235,13 +244,65 @@ async fn seed_capture(
     Ok(Json(store.projection(&meeting_id)?))
 }
 
+async fn create_proposal_request(
+    State(state): State<AppState>,
+    Path(meeting_id): Path<String>,
+    Json(request): Json<ProposalRequestInput>,
+) -> ApiResult<Json<MeetingProjection>> {
+    if request.message.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "proposal request message is required",
+        ));
+    }
+    if request.max_proposals.unwrap_or(1) > 1 {
+        return Err(ApiError::bad_request(
+            "proposal requests currently support one proposal; send max_proposals=1",
+        ));
+    }
+
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    let projection = store.projection(&meeting_id)?;
+    let proposal_request = ProposalRequestEngine::build(
+        &meeting_id,
+        &request.message,
+        request.context_window,
+        request.max_proposals.unwrap_or(1),
+        &projection.transcript,
+    );
+    let request_event = store.append(
+        &meeting_id,
+        event_types::PROPOSAL_REQUEST_CREATED,
+        Some(&proposal_request.id),
+        None,
+        &proposal_request,
+    )?;
+
+    run_proposal_agent(
+        &store,
+        &meeting_id,
+        ProposalAgentRun {
+            operator_message: Some(proposal_request.message.clone()),
+            transcript_spans: proposal_request.transcript_spans.clone(),
+            max_proposals: proposal_request.max_proposals,
+            parent_event_id: Some(request_event.id),
+            record_no_proposal: true,
+        },
+    )?;
+
+    Ok(Json(store.projection(&meeting_id)?))
+}
+
 async fn approve(
     State(state): State<AppState>,
     Path(proposal_id): Path<String>,
     Json(request): Json<ApproveRequest>,
 ) -> ApiResult<Json<MeetingProjection>> {
-    let profile_id =
+    let requested_profile_id =
         std::env::var("STANDBY_WORKER_PROFILE").unwrap_or_else(|_| "local-research".to_string());
+    let profile_id = WorkerProfile::by_id(&requested_profile_id, &repo_root()).id;
 
     let store = state
         .store
@@ -266,15 +327,31 @@ async fn approve(
         &profile_id,
     )?;
     let meeting_id = proposal.meeting_id.clone();
+    let queued_projection = store.projection(&meeting_id)?;
     drop(store);
 
-    let _ = state.job_tx.send(QueuedJob { job, profile_id });
+    if state
+        .job_tx
+        .send(QueuedJob {
+            job: job.clone(),
+            profile_id,
+        })
+        .is_err()
+    {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| ApiError::internal("lock store"))?;
+        emit_job_failed(
+            &store,
+            &job,
+            JobFailureReason::Unknown,
+            "worker queue unavailable",
+        )?;
+        return Ok(Json(store.projection(&meeting_id)?));
+    }
 
-    let store = state
-        .store
-        .lock()
-        .map_err(|_| ApiError::internal("lock store"))?;
-    Ok(Json(store.projection(&meeting_id)?))
+    Ok(Json(queued_projection))
 }
 
 async fn ignore(
@@ -391,6 +468,13 @@ struct ApiError {
 }
 
 impl ApiError {
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
     fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

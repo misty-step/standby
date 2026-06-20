@@ -2,9 +2,10 @@
 
 ## Goal
 
-Standby is a local-first meeting command surface. The live meeting listener
-proposes low-noise cards only; deterministic approval endpoints spawn worker
-jobs and record every step in an append-only event log.
+Standby is a local-first, AI-first meeting command surface. A model-native
+meeting listener proposes low-noise cards from live context; deterministic
+approval endpoints spawn worker jobs and record every step in an append-only
+event log.
 
 ## Stack
 
@@ -17,6 +18,9 @@ jobs and record every step in an append-only event log.
   workers, or credentials. Keep product logic out of it.
 - External capture providers and model APIs are adapters behind the
   `TranscriptSource` / `WorkerProfile` seams, not product core.
+- Proposal cognition is a model boundary, not a phrase-list boundary. Keyword
+  heuristics may exist only as explicit fallback, fixture, or safety guard paths;
+  they are not the product brain for live action suggestions.
 
 ## Gate
 
@@ -49,6 +53,11 @@ absent they report CAPTURE-BLOCKED, never hang.
 - No live transcript path may directly call external tools, send messages,
   mutate repos, deploy, or spend money.
 - Approval is a deterministic server/UI action, not an LLM decision.
+- Model-generated proposals suggest work only; the server owns schema
+  validation, policy gates, persistence, approval, and worker dispatch.
 - Every proposal, approval, job update, artifact, and failure is an event.
 - Capture failures are honest, specific, and non-hanging (name the exact
   missing permission); never fake "live".
+- Do not ship keyword-only action proposal logic as the primary live behavior.
+  If a deterministic proposal path remains, label it as fallback/test-only and
+  cover the model-native path with a proposal-quality oracle.

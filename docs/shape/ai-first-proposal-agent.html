@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI-First Proposal Agent Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    .plan-wide .ae-bar,
+    .plan-wide .ae-stage { width: min(92rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(24em, 0.7fr); gap: 3em; align-items: end; }
+    .grid-2, .grid-3, .grid-4 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.2em 1.35em; }
+    .wash { background: var(--ae-wash); }
+    .phase { display: grid; grid-template-columns: 9em minmax(0, 1fr) minmax(14em, 0.7fr); gap: 1.2em; border-top: 1px solid var(--ae-line); padding-top: 1em; margin-top: 1em; }
+    .phase:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1.3em 0; }
+    .table-wrap { overflow-x: auto; }
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(100% - 2rem, 92rem); }
+      .hero, .grid-2, .grid-3, .grid-4, .phase { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="../context-packets/ai-first-proposal-agent.md">PLAN / AI-FIRST PROPOSALS</a>
+    <p class="ae-chrome">rendered execution handoff / 2026-06-20</p>
+  </header>
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero">
+        <div>
+          <p class="ae-chrome">BACKLOG SOURCE: AI-FIRST PIVOT</p>
+          <h1 class="ae-strong">Replace keyword proposal detection with a model-native proposal agent.</h1>
+          <p class="ae-lede">Standby should understand live meeting context, propose useful action cards, accept operator nudges, and preserve deterministic approval. The first slice builds the model boundary and quality oracle before expanding workers or diarization.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">CHOSEN DESIGN</h2>
+          <p>Typed <code>ProposalAgent</code> boundary with recorded CI provider and opt-in live model provider. The heuristic engine has been removed from source.</p>
+          <div class="rule"></div>
+          <h2 class="ae-h">PROOF SURFACE</h2>
+          <p><code>./scripts/verify-model-proposals.sh</code>, <code>./scripts/verify-manual-proposal-request.sh</code>, full gate, and opt-in live model smoke.</p>
+          <div class="rule"></div>
+          <p class="ae-dim">Premise: <code>sha256:b6d1895601258d68de0c63eb00a593cbffd36e2edf55aded84cf540f82dc99c5</code></p>
+        </aside>
+      </section>
+
+      <section class="grid-4" style="margin-top: 2em">
+        <article class="cell"><h2 class="ae-h">STANDARD</h2><p>Model owns semantic judgment. Rust owns authority, logs, policy, approval, and schema.</p></article>
+        <article class="cell"><h2 class="ae-h">ACCEPTANCE</h2><p>Paraphrased asks produce grounded cards; vague or negated chatter produces no card.</p></article>
+        <article class="cell"><h2 class="ae-h">VERIFY</h2><p>Fixture grader, route replay, full gate, and permission-gated live provider evidence.</p></article>
+        <article class="cell wash"><h2 class="ae-h">STOP IF</h2><p>Raw audio must be committed, workers run without approval, or cloud model calls become default without explicit config.</p></article>
+      </section>
+
+      <section class="grid-3" style="margin-top: 1px">
+        <article class="cell">
+          <h2 class="ae-h">CURRENT STATE</h2>
+          <p><code>engine.rs</code> now uses model-response fixtures or an opt-in live model provider, then Rust validates schema, evidence spans, and approval policy. Worker status is visible; network/model workers remain gated.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">CHANGE SHAPE</h2>
+          <p>Add a proposal-agent interface, recorded model fixtures, one live model adapter, model metadata events, no-proposal states, and UI source/confidence display.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">NON-GOALS</h2>
+          <p>No default network worker, no autonomous external sends, no named speaker identity, no full UI redesign.</p>
+        </article>
+      </section>
+
+      <section class="ae-panel" style="margin-top: 2em">
+        <h2 class="ae-h">EXECUTION PLAN</h2>
+        <div class="phase">
+          <strong class="ae-accent">1 eval</strong>
+          <p>Create held-out proposal fixtures and grader: positive asks, paraphrases, negations, low-signal chatter, malformed model output, and missing evidence.</p>
+          <p class="ae-dim">Evidence: <code>docs/evidence/ai-first-proposals/</code> fixture verdict.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">2 boundary</strong>
+          <p>Add typed proposal-agent request/candidate structs, recorded provider, deterministic validator, and model/no-proposal events.</p>
+          <p class="ae-dim">Evidence: Rust tests and route replay.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">3 live</strong>
+          <p>Add opt-in provider path using OpenAI Realtime or a transcript-window model adapter with the same schema.</p>
+          <p class="ae-dim">Evidence: env-gated live smoke with redacted request/response artifact.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">4 polish</strong>
+          <p>Update UI to show model source, confidence, no-proposal states, approval, job status, and failure receipts without fake certainty.</p>
+          <p class="ae-dim">Evidence: UI state smoke and screenshot.</p>
+        </div>
+      </section>
+
+      <section class="grid-2" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ALTERNATIVES</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>option</th><th>verdict</th><th>why</th></tr></thead>
+              <tbody>
+                <tr><td>tune cue lists</td><td>reject primary</td><td>does not solve semantic paraphrase or false-positive quality</td></tr>
+                <tr><td>transcript model adapter first</td><td>choose if fastest</td><td>model-native with manageable CI fixtures</td></tr>
+                <tr><td>OpenAI Realtime first</td><td>choose when bounded</td><td>best live-product fit, more integration surface</td></tr>
+                <tr><td>direct tool workers</td><td>defer</td><td>requires separate egress, auth, and approval hardening</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">CRITIC FOCUS</h2>
+          <p>Blocking if the design lets model output execute work, stores unredacted live provider payloads by default, lacks false-positive/false-negative fixtures, or leaves the heuristic as primary live behavior.</p>
+        </article>
+      </section>
+    </article>
+  </main>
+</div>
+</body>
+</html>

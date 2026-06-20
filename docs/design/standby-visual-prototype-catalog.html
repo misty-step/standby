@@ -1,0 +1,2557 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standby Visual Prototype Catalog</title>
+    <style>
+      :root {
+        --catalog-bg: #111315;
+        --catalog-ink: #f2f4ef;
+        --catalog-muted: #a8aea5;
+        --catalog-line: rgba(242, 244, 239, 0.12);
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+        --ease-snap: cubic-bezier(0.18, 0.9, 0.18, 1);
+        --font-sans: "Suisse Int'l", "ABC Diatype", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
+        --font-display: "Druk Wide", "Clash Display", "Cabinet Grotesk", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
+        --font-mono: "Berkeley Mono", "IBM Plex Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 80px),
+          var(--catalog-bg);
+        color: var(--catalog-ink);
+        font-family: var(--font-sans);
+        letter-spacing: 0;
+      }
+
+      button,
+      textarea,
+      input {
+        font: inherit;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .catalog {
+        min-height: 100dvh;
+      }
+
+      .catalog-hero {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.75fr) minmax(320px, 1.4fr);
+        gap: 48px;
+        align-items: end;
+        min-height: 68dvh;
+        padding: 72px clamp(20px, 5vw, 72px) 44px;
+        border-bottom: 1px solid var(--catalog-line);
+      }
+
+      .catalog-kicker {
+        margin: 0 0 18px;
+        color: #b8c5b1;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .catalog-title {
+        max-width: 760px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(36px, 5.8vw, 74px);
+        font-weight: 680;
+        line-height: 0.94;
+        letter-spacing: 0;
+      }
+
+      .catalog-summary {
+        max-width: 680px;
+        margin: 0;
+        color: var(--catalog-muted);
+        font-size: clamp(16px, 1.6vw, 21px);
+        line-height: 1.55;
+      }
+
+      .catalog-nav {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: repeat(7, minmax(120px, 1fr));
+        gap: 1px;
+        background: rgba(17, 19, 21, 0.92);
+        border-bottom: 1px solid var(--catalog-line);
+      }
+
+      .catalog-nav a {
+        min-height: 54px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 12px;
+        color: #cfd5ce;
+        background: rgba(242, 244, 239, 0.04);
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 720;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+      }
+
+      .catalog-nav a:active {
+        transform: scale(0.98);
+      }
+
+      .catalog-nav a:focus-visible,
+      button:focus-visible,
+      textarea:focus-visible,
+      input:focus-visible {
+        outline: 2px solid #d7e3c8;
+        outline-offset: 3px;
+      }
+
+      .prototype {
+        padding: clamp(20px, 4vw, 56px);
+        border-bottom: 1px solid var(--catalog-line);
+      }
+
+      .prototype-intro {
+        display: grid;
+        grid-template-columns: minmax(160px, 0.42fr) minmax(300px, 1fr);
+        gap: 28px;
+        align-items: end;
+        margin: 0 0 22px;
+      }
+
+      .prototype-label {
+        margin: 0;
+        color: #cad6be;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .prototype-intro h2 {
+        margin: 8px 0 0;
+        font-family: var(--font-display);
+        font-size: clamp(26px, 4vw, 54px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .prototype-intro p {
+        margin: 0;
+        color: var(--catalog-muted);
+        line-height: 1.55;
+      }
+
+      .screen {
+        min-height: 100dvh;
+        padding: 8px;
+        overflow: hidden;
+        border: 1px solid var(--catalog-line);
+        border-radius: 8px;
+        box-shadow: 0 28px 80px rgba(7, 10, 9, 0.38);
+      }
+
+      .metric,
+      .mono,
+      .time,
+      .tag,
+      .status,
+      .tiny {
+        font-family: var(--font-mono);
+      }
+
+      .tag,
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 24px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 760;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        white-space: nowrap;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: currentColor;
+        animation: breathe 1.8s var(--ease-drawer) infinite alternate;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        min-height: 38px;
+        padding: 0 14px;
+        border: 0;
+        border-radius: 999px;
+        color: inherit;
+        cursor: pointer;
+        transition: transform 140ms var(--ease-out), background-color 180ms var(--ease-out), color 180ms var(--ease-out);
+      }
+
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn .btn-mark {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        transition: transform 180ms var(--ease-out), background-color 180ms var(--ease-out);
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .catalog-nav a:hover {
+          color: #ffffff;
+          background: rgba(242, 244, 239, 0.08);
+        }
+
+        .btn:hover .btn-mark {
+          transform: translateX(2px) translateY(-1px);
+        }
+      }
+
+      @keyframes breathe {
+        from {
+          opacity: 0.42;
+          transform: scale(0.86);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes drift-x {
+        from {
+          transform: translateX(-3%);
+        }
+        to {
+          transform: translateX(3%);
+        }
+      }
+
+      @keyframes meter {
+        from {
+          transform: scaleY(0.28);
+          opacity: 0.58;
+        }
+        to {
+          transform: scaleY(1);
+          opacity: 1;
+        }
+      }
+
+      @keyframes sweep {
+        from {
+          transform: translateX(-42%);
+        }
+        to {
+          transform: translateX(42%);
+        }
+      }
+
+      .screen > * {
+        animation: rise 520ms var(--ease-out) both;
+      }
+
+      .screen > *:nth-child(2) {
+        animation-delay: 60ms;
+      }
+
+      .screen > *:nth-child(3) {
+        animation-delay: 120ms;
+      }
+
+      /* Mission Control */
+      .mission {
+        --bg: #0c1113;
+        --panel: #11191b;
+        --line: rgba(187, 211, 202, 0.16);
+        --ink: #edf5ee;
+        --muted: #8ea099;
+        --accent: #9fbf9c;
+        display: grid;
+        grid-template-columns: 78px minmax(420px, 1.25fr) minmax(320px, 0.85fr);
+        grid-template-rows: auto 1fr;
+        gap: 0;
+        background:
+          repeating-linear-gradient(0deg, rgba(159, 191, 156, 0.025) 0 1px, transparent 1px 34px),
+          repeating-linear-gradient(90deg, rgba(159, 191, 156, 0.025) 0 1px, transparent 1px 34px),
+          var(--bg);
+        color: var(--ink);
+      }
+
+      .mission-rail {
+        grid-row: 1 / 3;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 18px;
+        padding: 18px 10px;
+        border-right: 1px solid var(--line);
+      }
+
+      .mission-logo {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        margin: 0 auto;
+        border: 1px solid rgba(159, 191, 156, 0.32);
+        border-radius: 8px;
+        color: var(--accent);
+        font-family: var(--font-mono);
+        font-weight: 800;
+      }
+
+      .mission-tabs {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+
+      .mission-tab {
+        display: grid;
+        place-items: center;
+        min-height: 42px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+
+      .mission-tab.is-active {
+        color: #eff8ed;
+        background: rgba(159, 191, 156, 0.1);
+      }
+
+      .mission-header {
+        grid-column: 2 / 4;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: center;
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .mission-title h3 {
+        margin: 0 0 6px;
+        font-size: 21px;
+        line-height: 1.1;
+      }
+
+      .mission-title p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .mission-status-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: end;
+      }
+
+      .mission .status {
+        color: #dcebd5;
+        background: rgba(159, 191, 156, 0.12);
+        border: 1px solid rgba(159, 191, 156, 0.22);
+      }
+
+      .mission-main {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        border-right: 1px solid var(--line);
+      }
+
+      .mission-command {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .mission-command label {
+        display: block;
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .mission-command-box {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 8px;
+        border: 1px solid rgba(159, 191, 156, 0.24);
+        border-radius: 8px;
+        background: rgba(238, 245, 238, 0.04);
+      }
+
+      .mission-command-box textarea {
+        min-height: 48px;
+        resize: vertical;
+        border: 0;
+        background: transparent;
+        color: var(--ink);
+        outline: 0;
+      }
+
+      .mission-command .btn {
+        background: #dce9c8;
+        color: #172016;
+      }
+
+      .mission-command .btn-mark {
+        background: rgba(23, 32, 22, 0.12);
+      }
+
+      .mission-feed {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 148px;
+        gap: 0;
+        min-height: 0;
+      }
+
+      .mission-transcript {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .mission-row {
+        display: grid;
+        grid-template-columns: 78px minmax(0, 1fr);
+        gap: 14px;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .mission-row strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #e9f2e5;
+        font-size: 13px;
+      }
+
+      .mission-row p {
+        margin: 0;
+        color: #c3d0c9;
+        line-height: 1.42;
+      }
+
+      .mission-row.is-current {
+        background: rgba(159, 191, 156, 0.08);
+      }
+
+      .mission-lanes {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        border-left: 1px solid var(--line);
+      }
+
+      .mission-lane {
+        display: grid;
+        align-content: space-between;
+        padding: 14px;
+      }
+
+      .mission-lane + .mission-lane {
+        border-top: 1px solid var(--line);
+      }
+
+      .mission-bars {
+        display: grid;
+        grid-template-columns: repeat(9, 1fr);
+        align-items: end;
+        gap: 4px;
+        height: 72px;
+      }
+
+      .mission-bars span {
+        display: block;
+        height: 100%;
+        min-height: 10px;
+        background: #9fbf9c;
+        border-radius: 99px;
+        transform-origin: bottom;
+        animation: meter 840ms var(--ease-drawer) infinite alternate;
+      }
+
+      .mission-bars span:nth-child(2n) {
+        animation-delay: 120ms;
+      }
+
+      .mission-bars span:nth-child(3n) {
+        animation-delay: 240ms;
+      }
+
+      .mission-aside {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-width: 0;
+        background: rgba(238, 245, 238, 0.025);
+      }
+
+      .mission-proposal,
+      .mission-job,
+      .mission-receipt {
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .mission-proposal h3,
+      .mission-job h3,
+      .mission-receipt h3 {
+        margin: 8px 0 8px;
+        font-size: 17px;
+      }
+
+      .mission-proposal p,
+      .mission-job p,
+      .mission-receipt p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .mission-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .mission-actions .btn:first-child {
+        background: #dce9c8;
+        color: #172016;
+      }
+
+      .mission-actions .btn:last-child {
+        background: rgba(238, 245, 238, 0.08);
+        color: #dce9d5;
+      }
+
+      .mission-job-line {
+        position: relative;
+        height: 7px;
+        overflow: hidden;
+        border-radius: 99px;
+        background: rgba(238, 245, 238, 0.09);
+      }
+
+      .mission-job-line::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 62%;
+        border-radius: inherit;
+        background: #9fbf9c;
+        animation: sweep 2.4s var(--ease-drawer) infinite alternate;
+      }
+
+      /* Editorial Desk */
+      .editorial {
+        --paper: #f4f0e6;
+        --ink: #27241e;
+        --muted: #6b6455;
+        --rule: rgba(39, 36, 30, 0.18);
+        --accent: #a24f33;
+        display: grid;
+        grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1.25fr);
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      .editorial-left {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        padding: clamp(32px, 5vw, 72px);
+        border-right: 1px solid var(--rule);
+      }
+
+      .editorial-name {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 44px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .editorial-left h3 {
+        max-width: 520px;
+        margin: 0;
+        font-family: "PP Editorial New", "Iowan Old Style", Georgia, serif;
+        font-size: clamp(44px, 7vw, 92px);
+        font-weight: 500;
+        line-height: 0.92;
+        letter-spacing: 0;
+      }
+
+      .editorial-brief {
+        align-self: end;
+        display: grid;
+        gap: 14px;
+        max-width: 460px;
+      }
+
+      .editorial-brief p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .editorial-audio {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        overflow: hidden;
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        background: var(--rule);
+      }
+
+      .editorial-audio div {
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.28);
+      }
+
+      .editorial-right {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        min-width: 0;
+      }
+
+      .editorial-top {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: center;
+        padding: 22px 28px;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .editorial-top .status {
+        color: #5e2c1d;
+        background: rgba(162, 79, 51, 0.12);
+        border: 1px solid rgba(162, 79, 51, 0.24);
+      }
+
+      .editorial-paper {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .editorial-line {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr) 92px;
+        gap: 18px;
+        padding: 18px 28px;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .editorial-line strong {
+        font-size: 14px;
+      }
+
+      .editorial-line p {
+        margin: 0;
+        color: #443e34;
+        line-height: 1.48;
+      }
+
+      .editorial-slip {
+        margin: 26px 28px;
+        padding: 18px;
+        border: 1px solid rgba(162, 79, 51, 0.28);
+        border-radius: 8px;
+        background: #fffaf0;
+        transform: rotate(-1deg);
+      }
+
+      .editorial-slip h3 {
+        margin: 8px 0;
+        font-family: var(--font-display);
+        font-size: 24px;
+      }
+
+      .editorial-slip p {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+
+      .editorial-slip textarea {
+        width: 100%;
+        min-height: 82px;
+        margin: 10px 0 12px;
+        padding: 12px;
+        resize: vertical;
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        background: rgba(244, 240, 230, 0.82);
+        color: var(--ink);
+      }
+
+      .editorial-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .editorial .btn {
+        background: var(--ink);
+        color: #fffaf0;
+      }
+
+      .editorial .btn.secondary {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--rule);
+      }
+
+      .editorial-footer {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1px;
+        background: var(--rule);
+        border-top: 1px solid var(--rule);
+      }
+
+      .editorial-footer div {
+        min-height: 86px;
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.25);
+      }
+
+      /* Mixing Board */
+      .console {
+        --deck: #d8d2c5;
+        --dark: #262a2b;
+        --ink: #1d211f;
+        --muted: #6a675e;
+        --line: rgba(29, 33, 31, 0.22);
+        --accent: #326f76;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        background: var(--deck);
+        color: var(--ink);
+      }
+
+      .console-top {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 18px;
+        align-items: center;
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .console-brand {
+        display: grid;
+        place-items: center;
+        width: 56px;
+        height: 40px;
+        border-radius: 8px;
+        color: #eff4ef;
+        background: var(--dark);
+        font-family: var(--font-mono);
+        font-weight: 800;
+      }
+
+      .console-search {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.36);
+      }
+
+      .console-search input {
+        border: 0;
+        background: transparent;
+        outline: 0;
+        color: var(--ink);
+      }
+
+      .console .status {
+        background: rgba(50, 111, 118, 0.12);
+        color: #16474d;
+        border: 1px solid rgba(50, 111, 118, 0.24);
+      }
+
+      .console-board {
+        display: grid;
+        grid-template-columns: minmax(520px, 1.2fr) minmax(330px, 0.8fr);
+        min-height: 0;
+      }
+
+      .console-channels {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(104px, 1fr));
+        min-width: 0;
+        border-right: 1px solid var(--line);
+      }
+
+      .channel {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-width: 0;
+        padding: 16px 12px;
+        border-right: 1px solid var(--line);
+      }
+
+      .channel:last-child {
+        border-right: 0;
+      }
+
+      .channel h3 {
+        margin: 0 0 4px;
+        font-size: 14px;
+      }
+
+      .channel p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .fader-area {
+        display: grid;
+        grid-template-columns: 18px 1fr 18px;
+        gap: 10px;
+        align-items: end;
+        padding: 18px 0;
+      }
+
+      .leds {
+        display: grid;
+        align-content: end;
+        gap: 5px;
+        min-height: 260px;
+      }
+
+      .leds span {
+        display: block;
+        height: 8px;
+        border-radius: 2px;
+        background: rgba(29, 33, 31, 0.14);
+      }
+
+      .leds span:nth-last-child(-n + 5) {
+        background: rgba(50, 111, 118, 0.72);
+      }
+
+      .fader {
+        position: relative;
+        height: 280px;
+        border-radius: 999px;
+        background: rgba(29, 33, 31, 0.16);
+      }
+
+      .fader::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: var(--pos, 45%);
+        width: 58px;
+        height: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.52);
+        border-radius: 6px;
+        background: #272d2e;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 10px 22px rgba(41, 44, 42, 0.18);
+      }
+
+      .knob-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .knob {
+        aspect-ratio: 1;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        background:
+          conic-gradient(from 220deg, #2c7178 0deg 112deg, rgba(29, 33, 31, 0.18) 112deg 360deg);
+      }
+
+      .console-side {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        min-width: 0;
+      }
+
+      .console-transcript {
+        min-height: 0;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.22);
+      }
+
+      .console-line {
+        padding: 15px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .console-line strong {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+        font-size: 13px;
+      }
+
+      .console-line p {
+        margin: 0;
+        color: #3f443f;
+        line-height: 1.44;
+      }
+
+      .console-proposal {
+        padding: 18px;
+        border-top: 1px solid var(--line);
+        background: #ebe5d9;
+      }
+
+      .console-proposal h3 {
+        margin: 8px 0;
+        font-size: 24px;
+      }
+
+      .console-proposal p {
+        margin: 0 0 12px;
+        color: var(--muted);
+      }
+
+      .console .btn {
+        background: var(--dark);
+        color: #f8f4ea;
+      }
+
+      .console .btn.secondary {
+        color: var(--ink);
+        background: rgba(29, 33, 31, 0.08);
+      }
+
+      .console-bottom {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1px;
+        background: var(--line);
+        border-top: 1px solid var(--line);
+      }
+
+      .console-bottom div {
+        padding: 14px 18px;
+        background: rgba(255, 255, 255, 0.28);
+      }
+
+      /* Spatial Canvas */
+      .canvas {
+        --bg: #eef1ee;
+        --ink: #18201e;
+        --muted: #64706b;
+        --line: rgba(24, 32, 30, 0.14);
+        --accent: #4a6f58;
+        position: relative;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        background:
+          repeating-linear-gradient(90deg, rgba(24, 32, 30, 0.045) 0 1px, transparent 1px 72px),
+          repeating-linear-gradient(0deg, rgba(24, 32, 30, 0.045) 0 1px, transparent 1px 72px),
+          var(--bg);
+        color: var(--ink);
+      }
+
+      .canvas-sidebar {
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        gap: 18px;
+        padding: 22px;
+        border-right: 1px solid var(--line);
+        background: rgba(238, 241, 238, 0.8);
+      }
+
+      .canvas-sidebar h3 {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 34px;
+        line-height: 0.95;
+      }
+
+      .canvas-prompt {
+        display: grid;
+        gap: 8px;
+      }
+
+      .canvas-prompt label {
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .canvas-prompt textarea {
+        min-height: 114px;
+        padding: 12px;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--ink);
+      }
+
+      .canvas .btn {
+        background: var(--ink);
+        color: #f7faf5;
+      }
+
+      .canvas-timeline {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+
+      .canvas-event {
+        display: grid;
+        grid-template-columns: 42px 1fr;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .canvas-event p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.38;
+      }
+
+      .canvas-stage {
+        position: relative;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .node {
+        position: absolute;
+        display: grid;
+        gap: 6px;
+        width: min(260px, 28vw);
+        padding: 14px;
+        border: 1px solid rgba(24, 32, 30, 0.18);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.68);
+        box-shadow: 0 18px 42px rgba(23, 31, 29, 0.13);
+        animation: rise 620ms var(--ease-out) both;
+      }
+
+      .node strong {
+        font-size: 14px;
+      }
+
+      .node p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
+      .node-main {
+        left: 38%;
+        top: 28%;
+        width: min(360px, 34vw);
+        background: #fdfefb;
+        border-color: rgba(74, 111, 88, 0.34);
+      }
+
+      .node-speaker-a {
+        left: 9%;
+        top: 15%;
+      }
+
+      .node-speaker-b {
+        right: 8%;
+        top: 18%;
+      }
+
+      .node-worker {
+        right: 13%;
+        bottom: 12%;
+      }
+
+      .node-receipt {
+        left: 14%;
+        bottom: 14%;
+      }
+
+      .canvas-line {
+        position: absolute;
+        height: 1px;
+        width: 28%;
+        background: rgba(74, 111, 88, 0.28);
+        transform-origin: left;
+      }
+
+      .line-a {
+        left: 25%;
+        top: 34%;
+        transform: rotate(12deg);
+      }
+
+      .line-b {
+        left: 55%;
+        top: 37%;
+        transform: rotate(-16deg);
+      }
+
+      .line-c {
+        left: 55%;
+        top: 58%;
+        transform: rotate(28deg);
+      }
+
+      .radial {
+        position: absolute;
+        left: 48%;
+        top: 54%;
+        display: grid;
+        place-items: center;
+        width: 156px;
+        height: 156px;
+        border: 1px solid rgba(74, 111, 88, 0.26);
+        border-radius: 50%;
+        background: rgba(238, 241, 238, 0.72);
+        transform: translate(-50%, -50%);
+      }
+
+      .radial .btn {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+        padding: 0;
+        text-align: center;
+      }
+
+      /* Quiet Island */
+      .island {
+        --bg: #f7f8f4;
+        --ink: #171a18;
+        --muted: #6e756e;
+        --line: rgba(23, 26, 24, 0.13);
+        --accent: #315d55;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        padding: clamp(16px, 3vw, 34px);
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      .island-top {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 12px;
+        align-items: center;
+        max-width: 980px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 18px 44px rgba(38, 47, 42, 0.1);
+      }
+
+      .island-logo {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        color: #f7faf5;
+        background: var(--ink);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .island-current {
+        min-width: 0;
+      }
+
+      .island-current strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+
+      .island-current span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .island .status {
+        color: #214c44;
+        background: rgba(49, 93, 85, 0.1);
+        border: 1px solid rgba(49, 93, 85, 0.2);
+      }
+
+      .island-center {
+        display: grid;
+        place-items: center;
+        padding: 48px 0;
+      }
+
+      .island-card {
+        width: min(720px, 100%);
+        display: grid;
+        gap: 22px;
+        padding: clamp(26px, 6vw, 64px);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 24px 72px rgba(28, 38, 33, 0.1);
+      }
+
+      .island-card h3 {
+        max-width: 620px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(38px, 7vw, 78px);
+        line-height: 0.95;
+      }
+
+      .island-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .island-input {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f4f6f1;
+      }
+
+      .island-input textarea {
+        min-height: 58px;
+        border: 0;
+        background: transparent;
+        resize: vertical;
+        outline: 0;
+      }
+
+      .island .btn {
+        background: var(--accent);
+        color: #f7faf5;
+      }
+
+      .island-bottom {
+        max-width: 980px;
+        width: 100%;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+      }
+
+      .island-mini {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .island-mini p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      /* Agency Glass */
+      .glass {
+        --bg: #171915;
+        --panel: #eff1e7;
+        --ink: #f3f6ed;
+        --dark: #181c18;
+        --muted: #aeb8aa;
+        --line: rgba(239, 241, 231, 0.16);
+        --accent: #d1ad68;
+        display: grid;
+        grid-template-columns: minmax(260px, 0.55fr) minmax(360px, 1fr) minmax(300px, 0.65fr);
+        gap: 14px;
+        padding: 18px;
+        background:
+          repeating-linear-gradient(135deg, rgba(239, 241, 231, 0.025) 0 1px, transparent 1px 18px),
+          var(--bg);
+        color: var(--ink);
+      }
+
+      .glass-panel {
+        display: grid;
+        min-width: 0;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(239, 241, 231, 0.06);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .glass-left {
+        grid-template-rows: auto 1fr auto;
+        padding: 16px;
+      }
+
+      .glass-brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .glass-brand strong {
+        font-size: 18px;
+      }
+
+      .glass-menu {
+        display: grid;
+        gap: 8px;
+        align-content: start;
+        padding: 18px 0;
+      }
+
+      .glass-menu button {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        padding: 11px 12px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        color: var(--muted);
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 140ms var(--ease-out);
+      }
+
+      .glass-menu button.is-active {
+        color: var(--ink);
+        background: rgba(239, 241, 231, 0.08);
+        border-color: var(--line);
+      }
+
+      .glass-menu button:active {
+        transform: scale(0.98);
+      }
+
+      .glass-main {
+        grid-template-rows: auto 1fr;
+        overflow: hidden;
+      }
+
+      .glass-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: end;
+        padding: clamp(32px, 4vw, 54px);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .glass-hero h3 {
+        max-width: 620px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(36px, 5vw, 76px);
+        line-height: 0.92;
+      }
+
+      .glass-hero p {
+        max-width: 430px;
+        margin: 12px 0 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .glass-transcript {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .glass-row {
+        display: grid;
+        grid-template-columns: 126px 1fr;
+        gap: 16px;
+        padding: 16px 22px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .glass-row strong {
+        color: #f5f7ef;
+        font-size: 13px;
+      }
+
+      .glass-row p {
+        margin: 0;
+        color: #d3d9cf;
+        line-height: 1.45;
+      }
+
+      .glass-right {
+        grid-template-rows: auto auto 1fr;
+        padding: 14px;
+        gap: 12px;
+      }
+
+      .glass-action {
+        padding: 14px;
+        border: 1px solid rgba(209, 173, 104, 0.24);
+        border-radius: 8px;
+        background: rgba(209, 173, 104, 0.08);
+      }
+
+      .glass-action h3 {
+        margin: 8px 0;
+        font-size: 22px;
+      }
+
+      .glass-action p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .glass .btn {
+        background: var(--panel);
+        color: var(--dark);
+      }
+
+      .glass .btn.secondary {
+        background: rgba(239, 241, 231, 0.08);
+        color: var(--ink);
+      }
+
+      .glass-stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .glass-job {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(239, 241, 231, 0.05);
+      }
+
+      .glass-job p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      /* Ledger OS */
+      .ledger {
+        --bg: #101412;
+        --ink: #dfe6dd;
+        --muted: #7f8a82;
+        --line: rgba(223, 230, 221, 0.16);
+        --accent: #c8d36a;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-mono);
+      }
+
+      .ledger-top {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 18px;
+        align-items: center;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .ledger-title {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: baseline;
+      }
+
+      .ledger-title strong {
+        font-size: 18px;
+      }
+
+      .ledger-title span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .ledger-grid {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 220px minmax(420px, 1.2fr) minmax(320px, 0.8fr);
+      }
+
+      .ledger-nav,
+      .ledger-stream,
+      .ledger-work {
+        min-height: 0;
+        overflow: hidden;
+        border-right: 1px solid var(--line);
+      }
+
+      .ledger-work {
+        border-right: 0;
+      }
+
+      .ledger-nav {
+        display: grid;
+        align-content: start;
+      }
+
+      .ledger-nav button {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 12px 14px;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        transition: color 120ms var(--ease-out), background-color 120ms var(--ease-out), transform 120ms var(--ease-out);
+      }
+
+      .ledger-nav button.is-active {
+        color: var(--ink);
+        background: rgba(200, 211, 106, 0.08);
+      }
+
+      .ledger-nav button:active {
+        transform: scale(0.99);
+      }
+
+      .ledger-section-title {
+        padding: 10px 14px;
+        color: var(--accent);
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .ledger-row {
+        display: grid;
+        grid-template-columns: 82px 112px minmax(0, 1fr) 76px;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .ledger-row p {
+        margin: 0;
+        color: #cbd5cc;
+        line-height: 1.42;
+      }
+
+      .ledger-row span,
+      .ledger-work p {
+        color: var(--muted);
+      }
+
+      .ledger-command {
+        padding: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .ledger-command label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--accent);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .ledger-command textarea {
+        width: 100%;
+        min-height: 86px;
+        padding: 10px;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #151a17;
+        color: var(--ink);
+      }
+
+      .ledger .btn {
+        margin-top: 10px;
+        background: var(--accent);
+        color: #151a17;
+      }
+
+      .ledger-card {
+        padding: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .ledger-card h3 {
+        margin: 0 0 8px;
+        color: var(--ink);
+        font-size: 16px;
+      }
+
+      .ledger-card p {
+        margin: 0 0 10px;
+        line-height: 1.45;
+      }
+
+      .ledger-progress {
+        display: grid;
+        grid-template-columns: repeat(20, 1fr);
+        gap: 2px;
+        margin-top: 10px;
+      }
+
+      .ledger-progress span {
+        height: 12px;
+        background: rgba(223, 230, 221, 0.11);
+      }
+
+      .ledger-progress span:nth-child(-n + 13) {
+        background: rgba(200, 211, 106, 0.74);
+      }
+
+      @media (max-width: 1040px) {
+        .catalog-nav {
+          grid-template-columns: repeat(2, minmax(120px, 1fr));
+          position: static;
+        }
+
+        .catalog-hero,
+        .prototype-intro {
+          grid-template-columns: 1fr;
+          align-items: start;
+        }
+
+        .catalog-hero {
+          min-height: auto;
+        }
+
+        .mission,
+        .editorial,
+        .console-board,
+        .canvas,
+        .glass,
+        .ledger-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .mission-rail,
+        .mission-header,
+        .mission-main,
+        .mission-aside,
+        .editorial-left,
+        .console-channels,
+        .canvas-sidebar,
+        .glass-left,
+        .glass-main,
+        .glass-right,
+        .ledger-nav,
+        .ledger-stream,
+        .ledger-work {
+          grid-column: auto;
+          grid-row: auto;
+          border-right: 0;
+        }
+
+        .mission-rail {
+          display: none;
+        }
+
+        .mission-header {
+          grid-column: auto;
+        }
+
+        .console-channels {
+          grid-template-columns: repeat(2, minmax(130px, 1fr));
+        }
+
+        .node,
+        .node-main,
+        .node-speaker-a,
+        .node-speaker-b,
+        .node-worker,
+        .node-receipt,
+        .radial,
+        .canvas-line {
+          position: static;
+          width: auto;
+          transform: none;
+        }
+
+        .canvas-stage {
+          display: grid;
+          gap: 12px;
+          padding: 18px;
+        }
+
+        .radial {
+          width: auto;
+          height: auto;
+          border-radius: 8px;
+          padding: 12px;
+        }
+
+        .radial .btn {
+          width: auto;
+          height: auto;
+          border-radius: 999px;
+          padding: 0 14px;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .catalog-hero,
+        .prototype-intro,
+        .editorial-top,
+        .glass-hero,
+        .mission-header,
+        .mission-feed,
+        .island-bottom,
+        .editorial-footer,
+        .console-bottom {
+          grid-template-columns: 1fr;
+        }
+
+        .catalog-hero {
+          min-height: auto;
+          padding-top: 44px;
+        }
+
+        .screen {
+          min-height: 100dvh;
+          border-radius: 0;
+        }
+
+        .prototype {
+          padding: 16px 0 28px;
+        }
+
+        .prototype-intro {
+          padding: 0 16px;
+        }
+
+        .mission,
+        .editorial,
+        .console,
+        .canvas,
+        .island,
+        .glass,
+        .ledger {
+          min-height: 100dvh;
+        }
+
+        .mission-command-box,
+        .island-input,
+        .console-top,
+        .ledger-top {
+          grid-template-columns: 1fr;
+        }
+
+        .mission-row,
+        .editorial-line,
+        .glass-row,
+        .ledger-row {
+          grid-template-columns: 1fr;
+        }
+
+        .console-channels {
+          grid-template-columns: 1fr;
+        }
+
+        .channel {
+          min-height: 360px;
+        }
+
+        .island-top {
+          grid-template-columns: auto 1fr;
+          border-radius: 8px;
+        }
+
+        .island-top .status {
+          grid-column: 1 / -1;
+          justify-self: start;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 1ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="catalog">
+      <header class="catalog-hero">
+        <div>
+          <h1 class="catalog-title">Seven complete app directions for a live meeting command surface.</h1>
+        </div>
+        <p class="catalog-summary">
+          Each prototype keeps the same product contract: visible capture health, newest-first transcript,
+          an operator-controlled Ask Standby moment, approval before execution, live worker status, and
+          honest speaker/audio attribution. The point is not palette swapping. Each screen organizes the
+          work differently.
+        </p>
+      </header>
+
+      <nav class="catalog-nav" aria-label="Prototype catalog">
+        <a href="#mission">Mission</a>
+        <a href="#editorial">Editorial</a>
+        <a href="#console">Console</a>
+        <a href="#canvas">Canvas</a>
+        <a href="#island">Island</a>
+        <a href="#glass">Glass</a>
+        <a href="#ledger">Ledger</a>
+      </nav>
+
+      <section class="prototype" id="mission">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Mission</p>
+            <h2>Mission Control</h2>
+          </div>
+          <p>
+            Dense, dark, operational. The transcript is a tactical feed, audio lanes read as instruments,
+            and agent work is never separated from approval evidence.
+          </p>
+        </div>
+
+        <div class="screen mission" role="region" aria-label="Mission Control prototype for Standby">
+          <aside class="mission-rail">
+            <div class="mission-logo">SB</div>
+            <div class="mission-tabs">
+              <div class="mission-tab is-active">MEET</div>
+              <div class="mission-tab">TASK</div>
+              <div class="mission-tab">LOG</div>
+              <div class="mission-tab">SET</div>
+            </div>
+            <div class="mission-tab">09:42</div>
+          </aside>
+
+          <header class="mission-header">
+            <div class="mission-title">
+              <h3>Customer forecast review</h3>
+              <p>Local capture active. Proposal generation waits for explicit operator approval.</p>
+            </div>
+            <div class="mission-status-row">
+              <span class="status"><span class="dot"></span>Transcribing</span>
+              <span class="status">Mic active</span>
+              <span class="status">Call audio active</span>
+            </div>
+          </header>
+
+          <section class="mission-main">
+            <div class="mission-command">
+              <label for="mission-ask">Ask Standby</label>
+              <div class="mission-command-box">
+                <textarea id="mission-ask">Turn the last five minutes into proposal cards for research, owner follow-up, and risk list cleanup.</textarea>
+                <button class="btn" type="button">Propose <span class="btn-mark">-&gt;</span></button>
+              </div>
+            </div>
+
+            <div class="mission-feed">
+              <div class="mission-transcript">
+                <div class="mission-row is-current">
+                  <div class="time">09:42:18</div>
+                  <div>
+                    <strong>Nadia R.</strong>
+                    <p>The region split is still wrong. I need the capacity model checked against the sheet from this morning.</p>
+                  </div>
+                </div>
+                <div class="mission-row">
+                  <div class="time">09:41:53</div>
+                  <div>
+                    <strong>Mateo V.</strong>
+                    <p>Can someone research what local-first meeting tools already do here before we commit to a custom path?</p>
+                  </div>
+                </div>
+                <div class="mission-row">
+                  <div class="time">09:41:28</div>
+                  <div>
+                    <strong>Me</strong>
+                    <p>I want the agent to propose tasks when I ask for help, then show whether a worker is actually running.</p>
+                  </div>
+                </div>
+                <div class="mission-row">
+                  <div class="time">09:40:44</div>
+                  <div>
+                    <strong>Priya S.</strong>
+                    <p>Do not bury the audio problem. If the call lane is silent, the screen needs to say exactly that.</p>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="mission-lanes">
+                <div class="mission-lane">
+                  <div>
+                    <span class="tag">Microphone</span>
+                    <p class="tiny">RMS .041 / 812 events</p>
+                  </div>
+                  <div class="mission-bars" aria-hidden="true">
+                    <span style="height: 28%"></span><span style="height: 64%"></span><span style="height: 38%"></span><span style="height: 77%"></span><span style="height: 52%"></span><span style="height: 84%"></span><span style="height: 45%"></span><span style="height: 69%"></span><span style="height: 31%"></span>
+                  </div>
+                </div>
+                <div class="mission-lane">
+                  <div>
+                    <span class="tag">Call audio</span>
+                    <p class="tiny">RMS .073 / 1,204 events</p>
+                  </div>
+                  <div class="mission-bars" aria-hidden="true">
+                    <span style="height: 56%"></span><span style="height: 36%"></span><span style="height: 88%"></span><span style="height: 42%"></span><span style="height: 72%"></span><span style="height: 61%"></span><span style="height: 31%"></span><span style="height: 93%"></span><span style="height: 44%"></span>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+
+          <aside class="mission-aside">
+            <div class="mission-proposal">
+              <span class="tag">Proposal</span>
+              <h3>Research local-first meeting tools</h3>
+              <p>Evidence: Mateo asked for market context; operator asked for visible worker execution.</p>
+              <div class="mission-actions">
+                <button class="btn" type="button">Approve <span class="btn-mark">-&gt;</span></button>
+                <button class="btn" type="button">Ignore</button>
+              </div>
+            </div>
+            <div class="mission-job">
+              <span class="tag">Worker running</span>
+              <h3>local-research / job 8f24</h3>
+              <p>Collecting existing product patterns in scratch. Network denied profile is active.</p>
+              <div class="mission-job-line" aria-hidden="true"></div>
+            </div>
+            <div class="mission-receipt">
+              <span class="tag">Receipt</span>
+              <h3>standby-job-8f24.md</h3>
+              <p>Partial report available. No repo writes. No external sends.</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="prototype" id="editorial">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Editorial</p>
+            <h2>Editorial Desk</h2>
+          </div>
+          <p>
+            Meeting intelligence as a working editor's desk: large readable structure, annotated slips,
+            citation-first proposals, and print-like hierarchy for trust.
+          </p>
+        </div>
+
+        <div class="screen editorial" role="region" aria-label="Editorial Desk prototype for Standby">
+          <section class="editorial-left">
+            <div class="editorial-name">
+              <span>Standby</span>
+              <span>Local meeting desk</span>
+            </div>
+            <h3>What just happened, what needs doing, and what is running.</h3>
+            <div class="editorial-brief">
+              <p>
+                The newest transcript stays visible at the top. Proposal cards read like editor's notes:
+                claim, cited source, editable assignment, approval.
+              </p>
+              <div class="editorial-audio">
+                <div>
+                  <span class="tag">Mic</span>
+                  <p class="mono">active / .038 rms</p>
+                </div>
+                <div>
+                  <span class="tag">Call audio</span>
+                  <p class="mono">active / speaker buckets: 3</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="editorial-right">
+            <header class="editorial-top">
+              <div>
+                <span class="status"><span class="dot"></span>Transcribing</span>
+              </div>
+              <button class="btn" type="button">Start capture <span class="btn-mark">-&gt;</span></button>
+            </header>
+
+            <div class="editorial-paper">
+              <div class="editorial-line">
+                <strong>Nadia R.</strong>
+                <p>Capacity numbers look stale in the west region. I need a clean compare before we send this out.</p>
+                <span class="time">09:42</span>
+              </div>
+              <div class="editorial-line">
+                <strong>Me</strong>
+                <p>Standby, draft proposal cards from the last few turns and keep them tied to exact transcript evidence.</p>
+                <span class="time">09:41</span>
+              </div>
+              <div class="editorial-line">
+                <strong>Speaker 2</strong>
+                <p>If the system cannot name speakers, at least give me stable buckets that do not collapse to call audio.</p>
+                <span class="time">09:40</span>
+              </div>
+
+              <article class="editorial-slip">
+                <span class="tag">Ready for approval</span>
+                <h3>Reconcile capacity model</h3>
+                <p>Use Nadia's request and the west-region transcript span. Worker: local-research.</p>
+                <textarea>Compare the west-region capacity model against this morning's sheet. Return mismatches, assumptions, and owner questions.</textarea>
+                <div class="editorial-actions">
+                  <button class="btn" type="button">Approve <span class="btn-mark">-&gt;</span></button>
+                  <button class="btn secondary" type="button">Revise</button>
+                </div>
+              </article>
+            </div>
+
+            <footer class="editorial-footer">
+              <div>
+                <strong>Queued</strong>
+                <p class="mono">0</p>
+              </div>
+              <div>
+                <strong>Running</strong>
+                <p class="mono">job 8f24 / 62%</p>
+              </div>
+              <div>
+                <strong>Receipt</strong>
+                <p class="mono">available</p>
+              </div>
+            </footer>
+          </section>
+        </div>
+      </section>
+
+      <section class="prototype" id="console">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Console</p>
+            <h2>Mixing Board</h2>
+          </div>
+          <p>
+            The audio problem becomes the organizing metaphor. Capture lanes, diarized speakers,
+            transcript, and worker output are mixed and monitored instead of hidden in generic cards.
+          </p>
+        </div>
+
+        <div class="screen console" role="region" aria-label="Mixing Board prototype for Standby">
+          <header class="console-top">
+            <div class="console-brand">SB</div>
+            <div class="console-search">
+              <span class="mono">ASK</span>
+              <input value="Create task proposals from the current call context" aria-label="Ask Standby prompt" />
+              <button class="btn" type="button">Send <span class="btn-mark">-&gt;</span></button>
+            </div>
+            <span class="status"><span class="dot"></span>Live levels</span>
+          </header>
+
+          <section class="console-board">
+            <div class="console-channels">
+              <article class="channel">
+                <div>
+                  <h3>Me</h3>
+                  <p>microphone</p>
+                </div>
+                <div class="fader-area">
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                  <div class="fader" style="--pos: 42%"></div>
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                <div class="knob-row"><div class="knob"></div><div class="knob"></div><div class="knob"></div></div>
+              </article>
+              <article class="channel">
+                <div>
+                  <h3>Nadia R.</h3>
+                  <p>remote 1</p>
+                </div>
+                <div class="fader-area">
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                  <div class="fader" style="--pos: 34%"></div>
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                <div class="knob-row"><div class="knob"></div><div class="knob"></div><div class="knob"></div></div>
+              </article>
+              <article class="channel">
+                <div>
+                  <h3>Mateo V.</h3>
+                  <p>remote 2</p>
+                </div>
+                <div class="fader-area">
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                  <div class="fader" style="--pos: 58%"></div>
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                <div class="knob-row"><div class="knob"></div><div class="knob"></div><div class="knob"></div></div>
+              </article>
+              <article class="channel">
+                <div>
+                  <h3>Priya S.</h3>
+                  <p>remote 3</p>
+                </div>
+                <div class="fader-area">
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                  <div class="fader" style="--pos: 49%"></div>
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                <div class="knob-row"><div class="knob"></div><div class="knob"></div><div class="knob"></div></div>
+              </article>
+              <article class="channel">
+                <div>
+                  <h3>Worker</h3>
+                  <p>local-research</p>
+                </div>
+                <div class="fader-area">
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                  <div class="fader" style="--pos: 23%"></div>
+                  <div class="leds"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                </div>
+                <div class="knob-row"><div class="knob"></div><div class="knob"></div><div class="knob"></div></div>
+              </article>
+            </div>
+
+            <aside class="console-side">
+              <div class="console-transcript">
+                <div class="console-line">
+                  <strong><span>Nadia R.</span><span class="time">09:42:18</span></strong>
+                  <p>Capacity numbers look stale in the west region.</p>
+                </div>
+                <div class="console-line">
+                  <strong><span>Me</span><span class="time">09:41:55</span></strong>
+                  <p>Use this exchange as context and propose useful agent work.</p>
+                </div>
+                <div class="console-line">
+                  <strong><span>Mateo V.</span><span class="time">09:41:21</span></strong>
+                  <p>Research local-first meeting tools before we design ourselves into a corner.</p>
+                </div>
+              </div>
+              <div class="console-proposal">
+                <span class="tag">Patch bay proposal</span>
+                <h3>Compare existing local-first meeting tools</h3>
+                <p>Inputs: call context, market research ask, operator instruction. Output: short options memo.</p>
+                <button class="btn" type="button">Approve <span class="btn-mark">-&gt;</span></button>
+                <button class="btn secondary" type="button">Hold</button>
+              </div>
+            </aside>
+          </section>
+
+          <footer class="console-bottom">
+            <div><strong>Mic lane</strong><p class="mono">captured 18m 22s</p></div>
+            <div><strong>Call lane</strong><p class="mono">captured 18m 18s</p></div>
+            <div><strong>Subagent</strong><p class="mono">running, no network</p></div>
+          </footer>
+        </div>
+      </section>
+
+      <section class="prototype" id="canvas">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Canvas</p>
+            <h2>Spatial Canvas</h2>
+          </div>
+          <p>
+            A map of meeting evidence and work. The user sees which utterance created which proposal,
+            which approval started which worker, and where the receipt lands.
+          </p>
+        </div>
+
+        <div class="screen canvas" role="region" aria-label="Spatial Canvas prototype for Standby">
+          <aside class="canvas-sidebar">
+            <h3>Evidence map</h3>
+            <div>
+              <span class="status"><span class="dot"></span>Transcribing</span>
+            </div>
+            <div class="canvas-prompt">
+              <label for="canvas-ask">Ask Standby</label>
+              <textarea id="canvas-ask">Use recent transcript context and propose concrete work with receipts.</textarea>
+              <button class="btn" type="button">Generate proposals <span class="btn-mark">-&gt;</span></button>
+            </div>
+            <div class="canvas-timeline">
+              <div class="canvas-event">
+                <span class="time">09:42</span>
+                <p>Nadia asks for capacity-model reconciliation.</p>
+              </div>
+              <div class="canvas-event">
+                <span class="time">09:41</span>
+                <p>Operator asks Standby for explicit proposal cards.</p>
+              </div>
+              <div class="canvas-event">
+                <span class="time">09:40</span>
+                <p>Speaker distinction problem is named.</p>
+              </div>
+            </div>
+          </aside>
+
+          <section class="canvas-stage">
+            <div class="canvas-line line-a" aria-hidden="true"></div>
+            <div class="canvas-line line-b" aria-hidden="true"></div>
+            <div class="canvas-line line-c" aria-hidden="true"></div>
+
+            <article class="node node-speaker-a">
+              <span class="tag">Speaker 1</span>
+              <strong>Capacity model risk</strong>
+              <p>Transcript evidence includes west region mismatch and owner question.</p>
+            </article>
+
+            <article class="node node-speaker-b">
+              <span class="tag">Speaker 2</span>
+              <strong>Market context request</strong>
+              <p>Research ask cites local-first meeting products and existing tool behavior.</p>
+            </article>
+
+            <article class="node node-main">
+              <span class="tag">Proposal cluster</span>
+              <strong>Three candidate actions</strong>
+              <p>Reconcile capacity model, research product patterns, and draft follow-up. Each card keeps its evidence span.</p>
+            </article>
+
+            <div class="radial">
+              <button class="btn" type="button">Approve selected</button>
+            </div>
+
+            <article class="node node-worker">
+              <span class="tag">Job running</span>
+              <strong>local-research / 8f24</strong>
+              <p>Scratch-only worker. No repo mutation. Receipt pending.</p>
+            </article>
+
+            <article class="node node-receipt">
+              <span class="tag">Receipt</span>
+              <strong>Result report</strong>
+              <p>Visible when the worker completes or fails with a concrete reason.</p>
+            </article>
+          </section>
+        </div>
+      </section>
+
+      <section class="prototype" id="island">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Island</p>
+            <h2>Quiet Island</h2>
+          </div>
+          <p>
+            Radical reduction. Standby behaves like a calm live overlay: one current line, one prompt,
+            one proposed action, and persistent capture health.
+          </p>
+        </div>
+
+        <div class="screen island" role="region" aria-label="Quiet Island prototype for Standby">
+          <header class="island-top">
+            <div class="island-logo">SB</div>
+            <div class="island-current">
+              <strong>Nadia R. just said: "The region split is still wrong."</strong>
+              <span>Newest transcript line remains pinned during long calls</span>
+            </div>
+            <span class="status"><span class="dot"></span>Transcribing</span>
+          </header>
+
+          <section class="island-center">
+            <article class="island-card">
+              <span class="tag">Ask Standby</span>
+              <h3>What should the agent do with this call context?</h3>
+              <p>
+                Standby can propose cards from the transcript, but it will not execute work until an approved card starts a visible job.
+              </p>
+              <div class="island-input">
+                <textarea>Make me action proposals for research, reconciliation, and follow-up. Keep each one tied to transcript evidence.</textarea>
+                <button class="btn" type="button">Propose <span class="btn-mark">-&gt;</span></button>
+              </div>
+              <div>
+                <span class="tag">Suggested</span>
+                <p><strong>Reconcile capacity model.</strong> Evidence: Nadia R. at 09:42, operator request at 09:41.</p>
+                <button class="btn" type="button">Approve and run <span class="btn-mark">-&gt;</span></button>
+              </div>
+            </article>
+          </section>
+
+          <footer class="island-bottom">
+            <div class="island-mini">
+              <strong>Audio</strong>
+              <p>Mic active. Call audio active.</p>
+            </div>
+            <div class="island-mini">
+              <strong>Worker</strong>
+              <p>local-research running. Receipt pending.</p>
+            </div>
+            <div class="island-mini">
+              <strong>Speakers</strong>
+              <p>Me, Nadia R., Mateo V., Speaker 3.</p>
+            </div>
+          </footer>
+        </div>
+      </section>
+
+      <section class="prototype" id="glass">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Glass</p>
+            <h2>Agency Glass</h2>
+          </div>
+          <p>
+            Premium, layered, and dramatic without losing the operator contract. The work queue and
+            transcript sit in machined panels with clear depth and strict approval states.
+          </p>
+        </div>
+
+        <div class="screen glass" role="region" aria-label="Agency Glass prototype for Standby">
+          <aside class="glass-panel glass-left">
+            <div class="glass-brand">
+              <strong>Standby</strong>
+              <span class="tag">Local first</span>
+            </div>
+            <div class="glass-menu">
+              <button class="is-active" type="button"><span>Meeting</span><span>04</span></button>
+              <button type="button"><span>Proposals</span><span>03</span></button>
+              <button type="button"><span>Jobs</span><span>01</span></button>
+              <button type="button"><span>Audio</span><span>02</span></button>
+            </div>
+            <div class="glass-job">
+              <strong>Capture</strong>
+              <p>Mic and call lanes active. Speaker buckets enabled.</p>
+            </div>
+          </aside>
+
+          <section class="glass-panel glass-main">
+            <div class="glass-hero">
+              <div>
+                <span class="status"><span class="dot"></span>Live meeting</span>
+                <h3>Approve work without losing the call.</h3>
+                <p>The transcript stays readable, the action prompt is deliberate, and every subagent run gets a visible receipt.</p>
+              </div>
+              <button class="btn" type="button">Ask Standby <span class="btn-mark">-&gt;</span></button>
+            </div>
+            <div class="glass-transcript">
+              <div class="glass-row">
+                <strong>Nadia R. / 09:42</strong>
+                <p>The model is still wrong by region. I want a concrete check before the customer follow-up goes out.</p>
+              </div>
+              <div class="glass-row">
+                <strong>Me / 09:41</strong>
+                <p>Standby should propose useful tasks when I ask, then show the worker actually running.</p>
+              </div>
+              <div class="glass-row">
+                <strong>Mateo V. / 09:40</strong>
+                <p>We need a quick scan of what already exists for local-first meeting tools.</p>
+              </div>
+              <div class="glass-row">
+                <strong>Speaker 3 / 09:39</strong>
+                <p>Separate call audio from microphone state. Do not make me infer which lane failed.</p>
+              </div>
+            </div>
+          </section>
+
+          <aside class="glass-panel glass-right">
+            <article class="glass-action">
+              <span class="tag">Proposal</span>
+              <h3>Research existing product patterns</h3>
+              <p>Cites Mateo's request and the operator's need for worker visibility.</p>
+              <button class="btn" type="button">Approve <span class="btn-mark">-&gt;</span></button>
+              <button class="btn secondary" type="button">Edit prompt</button>
+            </article>
+
+            <div class="glass-stack">
+              <div class="glass-job">
+                <strong>Job 8f24</strong>
+                <p>Running in local-research. Network denied.</p>
+              </div>
+              <div class="glass-job">
+                <strong>Artifact</strong>
+                <p>Waiting for worker receipt.</p>
+              </div>
+              <div class="glass-job">
+                <strong>Failure state</strong>
+                <p>If the worker fails, show the exact reason in this lane.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="prototype" id="ledger">
+        <div class="prototype-intro">
+          <div>
+            <p class="prototype-label">Direction / Ledger</p>
+            <h2>Ledger OS</h2>
+          </div>
+          <p>
+            Append-only, dense, and brutally clear. This direction makes the event log the interface:
+            proposals, approvals, worker state, artifacts, and failures are all rows in one operating ledger.
+          </p>
+        </div>
+
+        <div class="screen ledger" role="region" aria-label="Ledger OS prototype for Standby">
+          <header class="ledger-top">
+            <div class="ledger-title">
+              <strong>STANDBY EVENT LEDGER</strong>
+              <span>meeting teams-live / local capture</span>
+            </div>
+            <span class="status"><span class="dot"></span>TRANSCRIBING</span>
+            <span class="mono">09:42:31</span>
+          </header>
+
+          <section class="ledger-grid">
+            <nav class="ledger-nav" aria-label="Ledger sections">
+              <button class="is-active" type="button"><span>meeting.feed</span><span>18</span></button>
+              <button type="button"><span>proposal.queue</span><span>3</span></button>
+              <button type="button"><span>worker.jobs</span><span>1</span></button>
+              <button type="button"><span>audio.lanes</span><span>2</span></button>
+              <button type="button"><span>receipts</span><span>4</span></button>
+            </nav>
+
+            <div class="ledger-stream">
+              <div class="ledger-section-title">Newest events</div>
+              <div class="ledger-row">
+                <span>09:42:18</span>
+                <span>transcript.final</span>
+                <p>Nadia R.: Capacity numbers look stale in the west region.</p>
+                <span>seg_92</span>
+              </div>
+              <div class="ledger-row">
+                <span>09:41:55</span>
+                <span>operator.ask</span>
+                <p>Generate proposal cards from recent transcript context.</p>
+                <span>req_17</span>
+              </div>
+              <div class="ledger-row">
+                <span>09:41:56</span>
+                <span>proposal.created</span>
+                <p>Research local-first meeting tools; cites seg_88 and req_17.</p>
+                <span>pr_31</span>
+              </div>
+              <div class="ledger-row">
+                <span>09:42:03</span>
+                <span>proposal.approved</span>
+                <p>Approved by operator with edited prompt.</p>
+                <span>pr_31</span>
+              </div>
+              <div class="ledger-row">
+                <span>09:42:05</span>
+                <span>agent_job.started</span>
+                <p>local-research worker started in scratch. Network denied.</p>
+                <span>job_8f24</span>
+              </div>
+              <div class="ledger-row">
+                <span>09:42:29</span>
+                <span>audio.level</span>
+                <p>microphone rms .041, system_audio rms .073, no dropped frames.</p>
+                <span>src_04</span>
+              </div>
+            </div>
+
+            <aside class="ledger-work">
+              <div class="ledger-section-title">Command</div>
+              <div class="ledger-command">
+                <label for="ledger-ask">Ask Standby</label>
+                <textarea id="ledger-ask">Use seg_88 through seg_92. Propose tasks with evidence and receipts.</textarea>
+                <button class="btn" type="button">Append request <span class="btn-mark">-&gt;</span></button>
+              </div>
+
+              <article class="ledger-card">
+                <h3>pr_31 / proposed action</h3>
+                <p>Research local-first meeting tools and compare how they surface capture health, action approvals, and worker status.</p>
+                <button class="btn" type="button">Approve event <span class="btn-mark">-&gt;</span></button>
+              </article>
+
+              <article class="ledger-card">
+                <h3>job_8f24 / running</h3>
+                <p>Profile: local-research. Scratch path allocated. Receipt pending.</p>
+                <div class="ledger-progress" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span>
+                </div>
+              </article>
+
+              <article class="ledger-card">
+                <h3>audio lanes</h3>
+                <p>microphone active. call/system audio active. speaker labels: Me, Nadia R., Mateo V., Speaker 3.</p>
+              </article>
+            </aside>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

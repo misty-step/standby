@@ -60,11 +60,22 @@ What remains:
   lane/speaker would render both lanes' in-flight utterances faithfully.
 
 ## Durability / scale
+- **Operator-controlled proposals.** The Ask Standby request route, proposal
+  request event, approval/job/report path, and source-provided speaker-token v1
+  are delivered in this branch. The OMP/GLM/MCP worker-profile boundary remains
+  gated in `backlog.d/004-tool-capable-worker-profile-boundary.md`.
 - **Worker-queue recovery on restart.** The job queue is an in-memory mpsc; jobs
   queued at a crash/restart are lost. On startup, re-enqueue jobs that have
-  `agent_job.requested` but no terminal event.
+  `agent_job.requested` but no terminal event. Tracked in
+  `backlog.d/006-recover-worker-queue-after-daemon-restart.md`.
 - **Provider TranscriptSource adapters.** `VexaBotSource`, `RecallBotSource`,
   `TeamsGraphImportSource`, etc. for speaker diarization, bot capture, and
   post-meeting backfill — additive behind the existing `TranscriptSource` seam.
-- **Proposal quality.** The cue-based detector is a first heuristic. Consider a
-  local model classifier behind the same evidence-cited interface.
+- **Proposal quality.** Automatic and Ask Standby proposal generation now uses
+  the `ProposalAgent` boundary with recorded model fixtures and an opt-in live
+  model provider. Next quality work should add broader held-out transcript evals
+  and a realtime audio provider, not new keyword cue lists.
+- **Live speaker diarization/provider attribution.** The delivered speaker v1
+  preserves and renders distinct speaker tokens when a source provides them; it
+  does not yet create stable remote speaker buckets from local audio. Tracked in
+  `backlog.d/005-live-speaker-diarization-or-provider-attribution.md`.

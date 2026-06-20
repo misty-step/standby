@@ -5,9 +5,9 @@
 //! own wire formats, so the proposal/UI/job layers never see provider details.
 
 use crate::{
-    AudioDropped, AudioLane, AudioLevel, CaptureMode, EventStore, ProposalEngine, SourceFailed,
+    AudioDropped, AudioLane, AudioLevel, CaptureMode, EventStore, SourceFailed,
     SourceFailureReason, SourceStarted, SourceStopped, TranscriptSegment, TranscriptSourceKind,
-    event_types, new_id,
+    event_types, new_id, propose_from_meeting_context,
 };
 use anyhow::Result;
 use serde::Deserialize;
@@ -121,11 +121,14 @@ fn failure_reason_from_str(reason: &str) -> SourceFailureReason {
 }
 
 fn speaker_for(lane: &str, speaker: Option<String>) -> Option<String> {
-    speaker.or_else(|| match lane_from_str(lane) {
-        Some(AudioLane::Microphone) => Some("me".to_string()),
-        Some(AudioLane::SystemAudio) => Some("system_audio".to_string()),
-        None => None,
-    })
+    speaker
+        .map(|speaker| speaker.trim().to_string())
+        .filter(|speaker| !speaker.is_empty())
+        .or_else(|| match lane_from_str(lane) {
+            Some(AudioLane::Microphone) => Some("me".to_string()),
+            Some(AudioLane::SystemAudio) => Some("system_audio".to_string()),
+            None => None,
+        })
 }
 
 /// The local-Mac transcript source. Stateless: every method appends to the
@@ -289,35 +292,14 @@ impl LocalMacAudioSource {
         }
     }
 
-    /// Normalize one event and, when it finalized a segment, run proposal
-    /// detection so a fresh evidence-cited proposal is created if warranted.
+    /// Normalize one event and, when it finalized a segment, run the proposal
+    /// agent so a fresh evidence-cited proposal is created if warranted.
     pub fn ingest(store: &EventStore, meeting_id: &str, event: HelperEvent) -> Result<()> {
         if LocalMacAudioSource::normalize(store, meeting_id, event)?.is_some() {
-            detect_proposal(store, meeting_id)?;
+            propose_from_meeting_context(store, meeting_id)?;
         }
         Ok(())
     }
-}
-
-/// Run the proposal detector against the current projection and persist a new
-/// proposal if one is found. Deterministic and idempotent: the detector
-/// dedupes against existing proposals.
-pub fn detect_proposal(store: &EventStore, meeting_id: &str) -> Result<()> {
-    let projection = store.projection(meeting_id)?;
-    if let Some(proposal) = ProposalEngine::detect_research_proposal(
-        meeting_id,
-        &projection.transcript,
-        &projection.proposals,
-    ) {
-        store.append(
-            meeting_id,
-            event_types::PROPOSAL_CREATED,
-            Some(&proposal.id),
-            None,
-            &proposal,
-        )?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -328,15 +310,21 @@ mod tests {
     #[test]
     fn parses_helper_jsonl_variants() {
         assert!(matches!(
-            HelperEvent::parse_line(r#"{"type":"source.started","mode":"mic+system","mic":true,"system":true}"#),
+            HelperEvent::parse_line(
+                r#"{"type":"source.started","mode":"mic+system","mic":true,"system":true}"#
+            ),
             Some(HelperEvent::SourceStarted { .. })
         ));
         assert!(matches!(
-            HelperEvent::parse_line(r#"{"type":"audio.level","lane":"system_audio","rms":0.1,"captured_ms":1000}"#),
+            HelperEvent::parse_line(
+                r#"{"type":"audio.level","lane":"system_audio","rms":0.1,"captured_ms":1000}"#
+            ),
             Some(HelperEvent::AudioLevel { .. })
         ));
         assert!(matches!(
-            HelperEvent::parse_line(r#"{"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"hi"}"#),
+            HelperEvent::parse_line(
+                r#"{"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"hi"}"#
+            ),
             Some(HelperEvent::SegmentFinal { .. })
         ));
         // Blank and junk lines are ignored, never fatal.
@@ -364,8 +352,14 @@ mod tests {
         // Many partials, exactly one final segment in the transcript (no dupes).
         assert_eq!(projection.transcript.len(), 1);
         assert!(projection.partial.is_none());
-        assert_eq!(projection.transcript[0].speaker.as_deref(), Some("system_audio"));
-        assert_eq!(projection.source.source, Some(TranscriptSourceKind::LocalMac));
+        assert_eq!(
+            projection.transcript[0].speaker.as_deref(),
+            Some("system_audio")
+        );
+        assert_eq!(
+            projection.source.source,
+            Some(TranscriptSourceKind::LocalMac)
+        );
         assert!(projection.source.system_audio.active);
         // Replaying the same projection is stable.
         let again = store.projection(meeting).unwrap();
@@ -425,5 +419,31 @@ mod tests {
             projection.source.failure.unwrap().reason,
             SourceFailureReason::ScreenRecordingPermissionDenied
         );
+    }
+
+    #[test]
+    fn preserves_explicit_remote_speaker_tokens() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_remote_speakers";
+        for line in [
+            r#"{"type":"source.started","mode":"mic+system","mic":true,"system":true}"#,
+            r#"{"type":"segment.final","lane":"system_audio","speaker":"remote_1","text":"Can someone research the prior art?"}"#,
+            r#"{"type":"segment.final","lane":"system_audio","speaker":"remote_2","text":"Also include open-source options."}"#,
+            r#"{"type":"segment.final","lane":"system_audio","speaker":"","text":"Fallback to the lane label when speaker is blank."}"#,
+        ] {
+            let event = HelperEvent::parse_line(line).expect("parse");
+            LocalMacAudioSource::ingest(&store, meeting, event).unwrap();
+        }
+
+        let projection = store.projection(meeting).unwrap();
+        let speakers: Vec<_> = projection
+            .transcript
+            .iter()
+            .filter_map(|segment| segment.speaker.as_deref())
+            .collect();
+
+        assert!(speakers.contains(&"remote_1"));
+        assert!(speakers.contains(&"remote_2"));
+        assert!(speakers.contains(&"system_audio"));
     }
 }

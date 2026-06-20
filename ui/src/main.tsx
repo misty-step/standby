@@ -33,6 +33,8 @@ type SourceStatus =
   | "failed"
   | "stopped";
 
+type Section = "meeting" | "notes" | "jobs" | "settings";
+
 type TranscriptSegment = {
   id: string;
   speaker: string | null;
@@ -45,6 +47,21 @@ type TranscriptSegment = {
 
 type TranscriptEvidence = { segment_id: string; speaker: string | null; text: string };
 
+type ProposalRequest = {
+  id: string;
+  message: string;
+  context_window: "recent" | "full";
+  max_proposals: number;
+  transcript_spans: string[];
+};
+
+type ProposalModelMetadata = {
+  provider: string;
+  model: string;
+  mode: string;
+  reasoning_summary: string | null;
+};
+
 type Proposal = {
   id: string;
   kind: string;
@@ -55,6 +72,15 @@ type Proposal = {
   suggested_worker: string;
   confidence: number;
   status: "proposed" | "approved" | "ignored";
+  model: ProposalModelMetadata | null;
+};
+
+type NoProposal = {
+  id: string;
+  reason: string;
+  transcript_spans: string[];
+  operator_message: string | null;
+  model: ProposalModelMetadata;
 };
 
 type AgentJobSpec = {
@@ -76,6 +102,8 @@ type LaneState = {
   last_rms: number | null;
   captured_ms: number;
   level_events: number;
+  dropped?: number;
+  failed?: boolean;
 };
 
 type SourceFailure = { reason: string; lane: string | null; detail: string | null };
@@ -97,6 +125,8 @@ type MeetingProjection = {
   transcript: TranscriptSegment[];
   partial: TranscriptSegment | null;
   source: SourceState;
+  proposal_requests: ProposalRequest[];
+  no_proposals: NoProposal[];
   proposals: Proposal[];
   jobs: AgentJobSpec[];
   artifacts: Artifact[];
@@ -153,6 +183,7 @@ function App() {
   const [projection, setProjection] = useState<MeetingProjection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeSection, setActiveSection] = useState<Section>("meeting");
 
   async function refresh() {
     const response = await fetch(`/api/meetings/${meetingId}`);
@@ -187,14 +218,24 @@ function App() {
 
   const source = projection?.source;
   const status: SourceStatus = source?.status ?? "idle";
-  const activeProposal = projection?.proposals.find((proposal) => proposal.status === "proposed");
+  const activeProposals = projection?.proposals.filter((proposal) => proposal.status === "proposed") ?? [];
   const latestJob = projection?.jobs.at(-1) ?? null;
   const latestArtifact = projection?.artifacts.at(-1) ?? null;
+  const latestNoProposal = projection?.no_proposals.at(-1) ?? null;
+  const proposalCount = activeProposals.length;
+  const jobCount = projection?.jobs.length ?? 0;
   const capturing = status === "capturing" || status === "transcribing" || status === "no_mic_audio" || status === "no_system_audio";
 
   return (
     <div className="app-shell">
-      <Sidebar status={status} title={projection?.title ?? null} />
+      <Sidebar
+        status={status}
+        title={projection?.title ?? null}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        proposalCount={proposalCount}
+        jobCount={jobCount}
+      />
       <main className="workspace">
         <TopBar status={status} title={projection?.title ?? (isDemo ? "Demo meeting" : "Live meeting")} />
         <SourceBanner status={status} source={source ?? null} />
@@ -215,42 +256,67 @@ function App() {
               status={status}
             />
           </section>
-          <aside className="work-panel" aria-label="Proposal and job cards">
-            {activeProposal ? (
-              <ProposalCard
-                proposal={activeProposal}
-                onApprove={() => act(() => approveProposal(activeProposal))}
-                onIgnore={() => act(() => post(`/api/proposals/${activeProposal.id}/ignore`))}
-              />
-            ) : (
-              <EmptyProposal status={status} />
-            )}
-            {latestJob ? <JobCard job={latestJob} /> : null}
-            {latestArtifact ? <ResultCard artifact={latestArtifact} /> : null}
-          </aside>
+          <WorkPanel
+            section={activeSection}
+            projection={projection}
+            status={status}
+            source={source ?? null}
+            activeProposals={activeProposals}
+            latestJob={latestJob}
+            latestArtifact={latestArtifact}
+            latestNoProposal={latestNoProposal}
+            busy={busy}
+            onRequestProposal={(message) => act(() => requestProposal(message))}
+            onApprove={(proposal, prompt) => act(() => approveProposal(proposal, prompt))}
+            onIgnore={(proposal) => act(() => post(`/api/proposals/${proposal.id}/ignore`))}
+          />
         </section>
       </main>
     </div>
   );
 }
 
-async function approveProposal(proposal: Proposal): Promise<MeetingProjection> {
+async function approveProposal(proposal: Proposal, prompt: string): Promise<MeetingProjection> {
   const response = await fetch(`/api/proposals/${proposal.id}/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ approved_by: "Phaedrus", prompt: proposal.draft_prompt }),
+    body: JSON.stringify({ approved_by: "Phaedrus", prompt }),
   });
   if (!response.ok) throw new Error(`approval failed: ${response.status}`);
   return response.json();
 }
 
-function Sidebar({ status, title }: { status: SourceStatus; title: string | null }) {
+async function requestProposal(message: string): Promise<MeetingProjection> {
+  const response = await fetch(`/api/meetings/${meetingId}/proposal-requests`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message, context_window: "recent", max_proposals: 1 }),
+  });
+  if (!response.ok) throw new Error(`proposal request failed: ${response.status}`);
+  return response.json();
+}
+
+function Sidebar({
+  status,
+  title,
+  activeSection,
+  onSectionChange,
+  proposalCount,
+  jobCount,
+}: {
+  status: SourceStatus;
+  title: string | null;
+  activeSection: Section;
+  onSectionChange: (section: Section) => void;
+  proposalCount: number;
+  jobCount: number;
+}) {
   const navItems = [
-    [Mic2, "Meeting"],
-    [FileText, "Notes"],
-    [Bot, "Jobs"],
-    [Settings, "Settings"],
-  ] as const;
+    { id: "meeting", Icon: Mic2, label: "Meeting", count: proposalCount },
+    { id: "notes", Icon: FileText, label: "Notes", count: 0 },
+    { id: "jobs", Icon: Bot, label: "Jobs", count: jobCount },
+    { id: "settings", Icon: Settings, label: "Settings", count: 0 },
+  ] satisfies Array<{ id: Section; Icon: typeof Mic2; label: string; count: number }>;
   const tone = STATUS_LABEL[status].tone;
   return (
     <aside className="sidebar">
@@ -264,10 +330,15 @@ function Sidebar({ status, title }: { status: SourceStatus; title: string | null
         <strong>Standby</strong>
       </div>
       <nav className="nav-list" aria-label="Primary">
-        {navItems.map(([Icon, label], index) => (
-          <button key={label} className={`nav-item ${index === 0 ? "active" : ""}`}>
+        {navItems.map(({ Icon, count, id, label }) => (
+          <button
+            key={id}
+            className={`nav-item ${activeSection === id ? "active" : ""}`}
+            onClick={() => onSectionChange(id)}
+          >
             <Icon size={18} />
             <span>{label}</span>
+            {count > 0 ? <span className="nav-count">{count}</span> : null}
           </button>
         ))}
       </nav>
@@ -301,18 +372,15 @@ function TopBar({ status, title }: { status: SourceStatus; title: string }) {
 
 function SourceBanner({ status, source }: { status: SourceStatus; source: SourceState | null }) {
   const meta = STATUS_LABEL[status];
-  if (status === "idle") {
-    return (
-      <div className={`source-banner idle`}>
-        <span>Not capturing. Start capture to listen to the call on this Mac.</span>
-      </div>
-    );
-  }
+  const copy = sourceBannerCopy(status, source);
   return (
     <div className={`source-banner ${meta.tone}`}>
       <div className="source-banner-main">
         {status === "failed" ? <AlertTriangle size={16} /> : <Mic2 size={16} />}
-        <strong>{meta.label}</strong>
+        <div>
+          <strong>{copy.title}</strong>
+          <span className="source-summary">{copy.body}</span>
+        </div>
         {source?.failure ? (
           <span className="failure-note inline">
             {FAILURE_TEXT[source.failure.reason] ?? source.failure.detail ?? source.failure.reason}
@@ -322,6 +390,48 @@ function SourceBanner({ status, source }: { status: SourceStatus; source: Source
       {source ? <LaneMeters source={source} /> : null}
     </div>
   );
+}
+
+function sourceBannerCopy(
+  status: SourceStatus,
+  source: SourceState | null,
+): { title: string; body: string } {
+  const micAudible = source ? laneAudible(source.microphone) : false;
+  const systemAudible = source ? laneAudible(source.system_audio) : false;
+  if (status === "idle") {
+    return {
+      title: "Capture is off",
+      body: "Start capture to transcribe this Mac's microphone and call audio.",
+    };
+  }
+  if (micAudible && source?.system_audio.expected && !systemAudible) {
+    return {
+      title: "Mic transcript is live",
+      body: "The call-audio lane is available but silent; in a solo Meet that is normal until another participant or shared audio plays.",
+    };
+  }
+  if (systemAudible && source?.microphone.expected && !micAudible) {
+    return {
+      title: "Call audio is live",
+      body: "The microphone lane is silent. Check mute state if you expect your speech to appear.",
+    };
+  }
+  if (status === "transcribing" || status === "capturing") {
+    return {
+      title: STATUS_LABEL[status].label,
+      body: "Standby is listening locally and publishing finalized transcript lines.",
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "Capture failed",
+      body: "The exact missing permission or helper error is shown here.",
+    };
+  }
+  return {
+    title: STATUS_LABEL[status].label,
+    body: "Local capture state from the macOS helper.",
+  };
 }
 
 function LaneMeters({ source }: { source: SourceState }) {
@@ -356,11 +466,18 @@ function LaneMeter({
 }) {
   if (!lane.expected) return null;
   const level = Math.min(100, Math.round((lane.last_rms ?? 0) * 600));
-  const Icon = lane.active ? OnIcon : OffIcon;
+  const failed = lane.failed === true;
+  const active = laneAudible(lane);
+  const Icon = active ? OnIcon : OffIcon;
+  const stateLabel = laneStateLabel(lane, true);
   return (
-    <div className={`lane-meter ${lane.active ? "active" : "silent"}`} title={`${label} RMS ${(lane.last_rms ?? 0).toFixed(3)}`}>
+    <div
+      className={`lane-meter ${failed ? "failed" : active ? "active" : "silent"}`}
+      title={`${label} RMS ${(lane.last_rms ?? 0).toFixed(3)}`}
+    >
       <Icon size={15} />
       <span>{label}</span>
+      <small>{stateLabel}</small>
       <span className="lane-bar">
         <span style={{ transform: `scaleX(${level / 100})` }} />
       </span>
@@ -421,12 +538,10 @@ function TranscriptList({
   status: SourceStatus;
 }) {
   const empty = segments.length === 0 && !partial;
+  const newestFirst = useMemo(() => [...segments].reverse(), [segments]);
   return (
-    <div className="transcript-list">
+    <div className="transcript-list latest-first" aria-live="polite">
       {empty ? <TranscriptEmpty status={status} /> : null}
-      {segments.map((segment) => (
-        <TranscriptRow key={segment.id} segment={segment} />
-      ))}
       {partial ? (
         <article className="transcript-row partial">
           <span className={`avatar ${speakerTone(partial.speaker)}`}>{speakerInitials(partial.speaker)}</span>
@@ -434,8 +549,12 @@ function TranscriptList({
             <strong>{speakerLabel(partial.speaker)}</strong>
             <p className="partial-text">{partial.text}…</p>
           </div>
+          <time>{formatTime(partial.start_ms)}</time>
         </article>
       ) : null}
+      {newestFirst.map((segment) => (
+        <TranscriptRow key={segment.id} segment={segment} />
+      ))}
     </div>
   );
 }
@@ -470,12 +589,12 @@ function TranscriptEmpty({ status }: { status: SourceStatus }) {
 function TranscriptRow({ segment }: { segment: TranscriptSegment }) {
   return (
     <article className="transcript-row">
-      <time>{formatTime(segment.start_ms)}</time>
       <span className={`avatar ${speakerTone(segment.speaker)}`}>{speakerInitials(segment.speaker)}</span>
       <div>
         <strong>{speakerLabel(segment.speaker)}</strong>
         <p>{segment.text}</p>
       </div>
+      <time>{formatTime(segment.start_ms)}</time>
     </article>
   );
 }
@@ -486,16 +605,17 @@ function ProposalCard({
   onIgnore,
 }: {
   proposal: Proposal;
-  onApprove: () => void;
+  onApprove: (prompt: string) => void;
   onIgnore: () => void;
 }) {
   const [prompt, setPrompt] = useState(proposal.draft_prompt);
-  const evidence = proposal.evidence[0];
+  const evidence = proposal.evidence.slice(0, 3);
   return (
     <article className="proposal-card">
       <div className="card-heading">
         <Sparkles size={18} />
         <div>
+          <span className="eyebrow">Suggested action</span>
           <h2>{proposal.title}</h2>
           <p>{proposal.rationale}</p>
         </div>
@@ -503,20 +623,32 @@ function ProposalCard({
       <div className="meta-row">
         <span><Bot size={16} /> {workerLabel(proposal.suggested_worker)}</span>
         <span><Clock3 size={16} /> {Math.round(proposal.confidence * 100)}% confidence</span>
+        {proposal.model ? (
+          <span><Sparkles size={16} /> {proposal.model.provider} · {proposal.model.model}</span>
+        ) : null}
       </div>
+      {proposal.model?.reasoning_summary ? (
+        <p className="model-note">{proposal.model.reasoning_summary}</p>
+      ) : null}
       <div className="evidence-block">
         <strong>Evidence</strong>
-        <blockquote>
-          {evidence ? `“${evidence.text}”` : "Transcript evidence unavailable."}
-          {evidence?.speaker ? <cite> — {speakerLabel(evidence.speaker)}</cite> : null}
-        </blockquote>
+        {evidence.length > 0 ? (
+          evidence.map((item) => (
+            <blockquote key={item.segment_id}>
+              {`“${item.text}”`}
+              {item.speaker ? <cite> — {speakerLabel(item.speaker)}</cite> : null}
+            </blockquote>
+          ))
+        ) : (
+          <blockquote>Transcript evidence unavailable.</blockquote>
+        )}
       </div>
       <label className="prompt-box">
         <span>Prompt <em>(editable)</em></span>
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
       </label>
       <div className="button-row">
-        <button className="primary" onClick={onApprove}>
+        <button className="primary" onClick={() => onApprove(prompt)}>
           <PlayCircle size={17} /> Approve & run
         </button>
         <button onClick={onIgnore}>
@@ -527,33 +659,326 @@ function ProposalCard({
   );
 }
 
-function EmptyProposal({ status }: { status: SourceStatus }) {
+function EmptyProposal({ status, latestNoProposal }: { status: SourceStatus; latestNoProposal: NoProposal | null }) {
   return (
     <article className="empty-proposal">
       <Sparkles size={19} />
       <div>
         <strong>No pending proposals</strong>
         <p>
-          {status === "transcribing" || status === "capturing"
+          {latestNoProposal
+            ? `${latestNoProposal.model.provider} returned no card: ${humanReason(latestNoProposal.reason)}.`
+            : status === "transcribing" || status === "capturing"
             ? "Standby proposes work when the conversation calls for it."
             : "Approved or ignored cards stay in the event ledger."}
         </p>
+        {latestNoProposal?.operator_message ? (
+          <small>Last request: {latestNoProposal.operator_message}</small>
+        ) : null}
       </div>
     </article>
   );
 }
 
+function AskStandbyBox({
+  disabled,
+  transcriptCount,
+  onRequestProposal,
+}: {
+  disabled: boolean;
+  transcriptCount: number;
+  onRequestProposal: (message: string) => void;
+}) {
+  const [message, setMessage] = useState("");
+  const trimmed = message.trim();
+  return (
+    <form
+      className="ask-standby"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!trimmed) return;
+        onRequestProposal(trimmed);
+        setMessage("");
+      }}
+    >
+      <label>
+        <span>Ask Standby</span>
+        <textarea
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder="Research what came up in this call and propose a task"
+        />
+      </label>
+      <div className="ask-standby-footer">
+        <small>{transcriptCount} transcript span{transcriptCount === 1 ? "" : "s"} available</small>
+        <button className="primary" disabled={disabled || !trimmed}>
+          <Sparkles size={16} /> Create proposal
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function WorkPanel({
+  section,
+  projection,
+  status,
+  source,
+  activeProposals,
+  latestJob,
+  latestArtifact,
+  latestNoProposal,
+  busy,
+  onRequestProposal,
+  onApprove,
+  onIgnore,
+}: {
+  section: Section;
+  projection: MeetingProjection | null;
+  status: SourceStatus;
+  source: SourceState | null;
+  activeProposals: Proposal[];
+  latestJob: AgentJobSpec | null;
+  latestArtifact: Artifact | null;
+  latestNoProposal: NoProposal | null;
+  busy: boolean;
+  onRequestProposal: (message: string) => void;
+  onApprove: (proposal: Proposal, prompt: string) => void;
+  onIgnore: (proposal: Proposal) => void;
+}) {
+  const jobs = projection?.jobs ?? [];
+  const artifacts = projection?.artifacts ?? [];
+  const transcript = projection?.transcript ?? [];
+
+  return (
+    <aside className="work-panel" aria-label={`${sectionLabel(section)} panel`}>
+      <PanelHeader section={section} jobs={jobs.length} proposals={activeProposals.length} />
+      {section === "meeting" ? (
+        <>
+          <AskStandbyBox
+            disabled={busy}
+            transcriptCount={transcript.length}
+            onRequestProposal={onRequestProposal}
+          />
+          {activeProposals.length > 0 ? (
+            <div className="proposal-stack">
+              {activeProposals.map((proposal) => (
+                <ProposalCard
+                  key={proposal.id}
+                  proposal={proposal}
+                  onApprove={(prompt) => onApprove(proposal, prompt)}
+                  onIgnore={() => onIgnore(proposal)}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyProposal status={status} latestNoProposal={latestNoProposal} />
+          )}
+          {latestJob ? <JobCard job={latestJob} /> : null}
+          {latestArtifact ? <ResultCard artifact={latestArtifact} /> : null}
+        </>
+      ) : null}
+      {section === "notes" ? <NotesPanel segments={transcript} /> : null}
+      {section === "jobs" ? <JobsPanel jobs={jobs} artifacts={artifacts} /> : null}
+      {section === "settings" ? <AudioPanel status={status} source={source} /> : null}
+    </aside>
+  );
+}
+
+function PanelHeader({
+  section,
+  jobs,
+  proposals,
+}: {
+  section: Section;
+  jobs: number;
+  proposals: number;
+}) {
+  const copy: Record<Section, { title: string; body: string }> = {
+    meeting: {
+      title: "Meeting actions",
+      body: proposals > 0 ? "Review the suggested task before it starts." : "Approved work and results stay visible here.",
+    },
+    notes: {
+      title: "Notes",
+      body: "Newest finalized transcript lines, separated from task approval.",
+    },
+    jobs: {
+      title: "Agent jobs",
+      body: jobs > 0 ? `${jobs} worker job${jobs === 1 ? "" : "s"} recorded for this meeting.` : "Approved tasks appear here.",
+    },
+    settings: {
+      title: "Audio",
+      body: "Capture lanes and permission state for this Mac.",
+    },
+  };
+  return (
+    <header className="panel-header">
+      <h1>{copy[section].title}</h1>
+      <p>{copy[section].body}</p>
+    </header>
+  );
+}
+
+function NotesPanel({ segments }: { segments: TranscriptSegment[] }) {
+  const recent = useMemo(() => [...segments].reverse().slice(0, 8), [segments]);
+  if (recent.length === 0) {
+    return <EmptyWork icon={FileText} title="No notes yet" body="Final transcript lines will appear here during capture." />;
+  }
+  return (
+    <div className="notes-panel">
+      {recent.map((segment) => (
+        <article className="note-line" key={segment.id}>
+          <strong>{speakerLabel(segment.speaker)}</strong>
+          <p>{segment.text}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function JobsPanel({ jobs, artifacts }: { jobs: AgentJobSpec[]; artifacts: Artifact[] }) {
+  const newestJobs = [...jobs].reverse();
+  const newestArtifacts = [...artifacts].reverse();
+  if (newestJobs.length === 0) {
+    return <EmptyWork icon={Bot} title="No agent jobs yet" body="Approve a suggested action to queue a worker." />;
+  }
+  return (
+    <div className="job-history">
+      {newestJobs.map((job) => (
+        <JobCard key={job.id} job={job} />
+      ))}
+      {newestArtifacts.length > 0 ? (
+        <section className="artifact-stack" aria-label="Job results">
+          <h2>Results</h2>
+          {newestArtifacts.map((artifact) => (
+            <ResultCard key={artifact.id} artifact={artifact} />
+          ))}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function AudioPanel({ status, source }: { status: SourceStatus; source: SourceState | null }) {
+  if (!source) {
+    return <EmptyWork icon={Settings} title="No capture source" body="Start capture to inspect microphone and call-audio lanes." />;
+  }
+  return (
+    <div className="audio-panel">
+      <section className="audio-summary">
+        <strong>{sourceBannerCopy(status, source).title}</strong>
+        <p>{sourceBannerCopy(status, source).body}</p>
+        {source.failure ? (
+          <div className="failure-note">
+            <AlertTriangle size={15} />
+            {FAILURE_TEXT[source.failure.reason] ?? source.failure.detail ?? source.failure.reason}
+          </div>
+        ) : null}
+      </section>
+      <div className="lane-detail-grid">
+        <LaneDetail label="Microphone" lane={source.microphone} />
+        <LaneDetail label="Call audio" lane={source.system_audio} />
+      </div>
+    </div>
+  );
+}
+
+function LaneDetail({ label, lane }: { label: string; lane: LaneState }) {
+  const failed = lane.failed === true;
+  const active = laneAudible(lane);
+  const state = laneStateLabel(lane, false);
+  return (
+    <article className={`lane-detail ${failed ? "failed" : active ? "active" : "silent"}`}>
+      <div>
+        <strong>{label}</strong>
+        <span>{state}</span>
+      </div>
+      <dl>
+        <div>
+          <dt>Captured</dt>
+          <dd>{formatDuration(lane.captured_ms)}</dd>
+        </div>
+        <div>
+          <dt>Level events</dt>
+          <dd>{lane.level_events}</dd>
+        </div>
+        <div>
+          <dt>Last RMS</dt>
+          <dd>{(lane.last_rms ?? 0).toFixed(3)}</dd>
+        </div>
+        <div>
+          <dt>Dropped</dt>
+          <dd>{lane.dropped ?? 0}</dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
+function laneAudible(lane: LaneState): boolean {
+  return lane.failed !== true && lane.active && (lane.last_rms ?? 0) > 0.001;
+}
+
+function laneStateLabel(lane: LaneState, compact: boolean): string {
+  if (lane.failed === true) return "Failed";
+  if (laneAudible(lane)) return "Active";
+  if (lane.active || lane.level_events > 0) return compact ? "Silent" : "Available, silent";
+  return "Silent";
+}
+
+function EmptyWork({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: typeof Bot;
+  title: string;
+  body: string;
+}) {
+  return (
+    <article className="empty-proposal">
+      <Icon size={19} />
+      <div>
+        <strong>{title}</strong>
+        <p>{body}</p>
+      </div>
+    </article>
+  );
+}
+
+function sectionLabel(section: Section): string {
+  switch (section) {
+    case "meeting":
+      return "Meeting actions";
+    case "notes":
+      return "Notes";
+    case "jobs":
+      return "Agent jobs";
+    case "settings":
+      return "Audio settings";
+  }
+}
+
 function JobCard({ job }: { job: AgentJobSpec }) {
   const tone = job.status === "completed" ? "ok" : job.status === "failed" ? "error" : "live";
+  const progressIndex = jobProgressIndex(job.status);
   return (
     <article className={`job-card ${tone}`}>
       <div className="job-title">
         <span><Bot size={17} /> {job.title}</span>
         <strong className={`job-status ${tone}`}>{JOB_LABEL[job.status]}</strong>
       </div>
-      {job.profile ? <p className="job-meta">Worker: {job.profile}</p> : null}
-      {job.status === "running" && job.progress_note ? <p className="job-meta">{job.progress_note}</p> : null}
-      {job.status === "queued" ? <p className="job-meta">Waiting for a worker slot…</p> : null}
+      <div className="job-steps" aria-label={`Worker status: ${JOB_LABEL[job.status]}`}>
+        {["Queued", "Running", "Done"].map((label, index) => (
+          <span key={label} className={index <= progressIndex ? "complete" : ""}>
+            {label}
+          </span>
+        ))}
+      </div>
+      {job.profile ? <p className="job-meta"><strong>Worker</strong> {job.profile}</p> : null}
+      <p className="job-meta">{job.progress_note ?? jobDefaultProgress(job.status)}</p>
+      {job.receipt_path ? <p className="job-receipt">Receipt: {job.receipt_path}</p> : null}
       {job.status === "failed" ? (
         <div className="failure-note">
           <AlertTriangle size={15} /> {failureLabel(job.failure_reason)}
@@ -563,6 +988,37 @@ function JobCard({ job }: { job: AgentJobSpec }) {
       ) : null}
     </article>
   );
+}
+
+function jobProgressIndex(status: JobStatus): number {
+  switch (status) {
+    case "queued":
+      return 0;
+    case "running":
+    case "needs_input":
+    case "failed":
+    case "canceled":
+      return 1;
+    case "completed":
+      return 2;
+  }
+}
+
+function jobDefaultProgress(status: JobStatus): string {
+  switch (status) {
+    case "queued":
+      return "Waiting for a worker slot.";
+    case "running":
+      return "Worker is executing.";
+    case "needs_input":
+      return "Worker needs input before it can continue.";
+    case "completed":
+      return "Worker completed.";
+    case "failed":
+      return "Worker failed.";
+    case "canceled":
+      return "Worker was canceled.";
+  }
 }
 
 function ResultCard({ artifact }: { artifact: Artifact }) {
@@ -582,24 +1038,54 @@ function speakerLabel(speaker: string | null): string {
   if (!speaker) return "Unknown";
   if (speaker === "me") return "Me";
   if (speaker === "system_audio") return "Call audio";
+  const generic = genericSpeakerNumber(speaker);
+  if (generic) return `Speaker ${generic}`;
   return speaker;
 }
 
 function speakerInitials(speaker: string | null): string {
+  if (!speaker) return "?";
   if (speaker === "me") return "Me";
   if (speaker === "system_audio") return "Ca";
+  const generic = genericSpeakerNumber(speaker);
+  if (generic) return `S${generic}`;
   return (speaker ?? "?").slice(0, 2);
 }
 
 function speakerTone(speaker: string | null): string {
+  if (!speaker) return "violet";
   if (speaker === "me") return "green";
   if (speaker === "system_audio") return "blue";
+  const generic = genericSpeakerNumber(speaker);
+  if (generic) return Number(generic) % 2 === 0 ? "orange" : "violet";
   return "violet";
+}
+
+function genericSpeakerNumber(speaker: string): string | null {
+  const match = speaker.match(/^(?:remote|speaker)[_-](\d+)$/i);
+  return match ? match[1] : null;
 }
 
 function workerLabel(worker: string): string {
   if (worker === "research_agent") return "Research agent";
   return worker.replace(/_/g, " ");
+}
+
+function humanReason(reason: string): string {
+  switch (reason) {
+    case "open_proposal_exists":
+      return "there is already a pending proposal";
+    case "no_transcript_or_operator_context":
+      return "there was no transcript or operator context";
+    case "insufficient_context_for_automatic_card":
+      return "there was not enough meeting context yet";
+    case "low_actionability":
+      return "the request did not contain enough delegateable work";
+    case "model_returned_no_valid_proposals":
+      return "the model response did not cite valid transcript evidence";
+    default:
+      return reason.replace(/_/g, " ");
+  }
 }
 
 function failureLabel(reason: string | null): string {
@@ -624,6 +1110,15 @@ function formatTime(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${ms} ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

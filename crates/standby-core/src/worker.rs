@@ -10,7 +10,8 @@
 
 use crate::{
     AgentJobSpec, Artifact, DeliverableSpec, EventStore, JobBudget, JobContext, JobFailureReason,
-    JobStatus, PermissionProfile, Proposal, ProposalStatus, WorkerKind, event_types, new_id,
+    JobStatus, NetworkWorkerConsent, PermissionProfile, Proposal, ProposalStatus, WorkerKind,
+    event_types, new_id,
 };
 use anyhow::{Context, Result};
 use std::fs;
@@ -218,6 +219,27 @@ pub fn approve_proposal(
     Ok(job)
 }
 
+pub fn grant_network_worker_consent(
+    store: &EventStore,
+    job: &AgentJobSpec,
+    approved_by: &str,
+) -> Result<NetworkWorkerConsent> {
+    let consent = NetworkWorkerConsent {
+        job_id: job.id.clone(),
+        profile: job.profile.clone().unwrap_or_else(|| "unknown".to_string()),
+        approved_by: approved_by.to_string(),
+        reason: "operator approved network/model worker for this job".to_string(),
+    };
+    store.append(
+        &job.meeting_id,
+        event_types::JOB_NETWORK_CONSENT_GRANTED,
+        Some(&job.id),
+        None,
+        &consent,
+    )?;
+    Ok(consent)
+}
+
 /// Generate the `sandbox-exec` profile: deny by default, allow reads, allow
 /// writes only under the (canonicalized) scratch dir plus harmless device
 /// nodes, and allow network only when the profile requires it.
@@ -297,6 +319,30 @@ fn substitute(arg: &str, scratch: &Path, prompt_file: &Path, prompt: &str) -> St
         .replace("{prompt}", prompt)
 }
 
+fn redact_network_prompt(prompt: &str) -> String {
+    prompt
+        .split_whitespace()
+        .map(redact_token)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn redact_token(token: &str) -> String {
+    let trimmed = token.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | ')' | '('));
+    let looks_secret = trimmed.starts_with("sk-")
+        || trimmed.starts_with("xoxb-")
+        || trimmed.starts_with("ghp_")
+        || trimmed.starts_with("github_pat_")
+        || trimmed.starts_with("AKIA")
+        || trimmed.contains("BEGIN_PRIVATE_KEY")
+        || trimmed.to_ascii_lowercase().starts_with("password=");
+    if looks_secret {
+        token.replace(trimmed, "[REDACTED_SECRET]")
+    } else {
+        token.to_string()
+    }
+}
+
 /// Run a queued job to completion inside the sandbox, emitting normalized
 /// started/progress/artifact/completed/failed events. Synchronous so it can be
 /// driven directly from tests and from `spawn_blocking` in the daemon.
@@ -306,20 +352,6 @@ pub fn run_job(
     profile: &WorkerProfile,
     scratch_root: &Path,
 ) -> Result<JobStatus> {
-    // Emit started up front so any later failure — including a setup error or a
-    // panic — is a visible transition, never a job stuck Queued with no event.
-    let mut running = job.clone();
-    running.status = JobStatus::Running;
-    running.profile = Some(profile.id.clone());
-    running.progress_note = Some(format!("preparing sandbox for {}", profile.program));
-    store.append(
-        &job.meeting_id,
-        event_types::JOB_STARTED,
-        job.proposal_id.as_deref(),
-        None,
-        &running,
-    )?;
-
     if profile.allow_network
         && std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
             .ok()
@@ -335,6 +367,36 @@ pub fn run_job(
             "",
         );
     }
+    if profile.allow_network && !store.has_network_worker_consent(&job.meeting_id, &job.id)? {
+        return finish_failed(
+            store,
+            job,
+            profile,
+            JobFailureReason::ConsentRequired,
+            "network-enabled worker profile rejected; explicit per-job consent event is required",
+            "",
+        );
+    }
+
+    // Emit started up front so any later failure — including a setup error or a
+    // panic — is a visible transition, never a job stuck Queued with no event.
+    let mut running = job.clone();
+    running.status = JobStatus::Running;
+    running.profile = Some(profile.id.clone());
+    running.progress_note = Some(format!("preparing sandbox for {}", profile.program));
+    store.append(
+        &job.meeting_id,
+        event_types::JOB_STARTED,
+        job.proposal_id.as_deref(),
+        None,
+        &running,
+    )?;
+
+    let dispatch_prompt = if profile.allow_network {
+        redact_network_prompt(&job.prompt)
+    } else {
+        job.prompt.clone()
+    };
 
     // Fallible setup. On any error, record a terminal failure instead of bubbling
     // up with no further event. Scratch is canonicalized so the sandbox subpath
@@ -344,7 +406,7 @@ pub fn run_job(
         fs::create_dir_all(&job_dir).context("create job scratch")?;
         let job_dir = fs::canonicalize(&job_dir).context("canonicalize job scratch")?;
         let prompt_file = job_dir.join("prompt.txt");
-        fs::write(&prompt_file, &job.prompt).context("write prompt")?;
+        fs::write(&prompt_file, &dispatch_prompt).context("write prompt")?;
         let profile_path = job_dir.join("sandbox.sb");
         fs::write(
             &profile_path,
@@ -384,7 +446,7 @@ pub fn run_job(
     let mut args = vec!["-f".to_string(), profile_path.display().to_string()];
     args.push(profile.program.clone());
     for arg in &profile.args {
-        args.push(substitute(arg, &job_dir, &prompt_file, &job.prompt));
+        args.push(substitute(arg, &job_dir, &prompt_file, &dispatch_prompt));
     }
 
     let stdout_file = fs::File::create(&stdout_path).context("create stdout log")?;
@@ -593,7 +655,38 @@ pub fn default_scratch_root() -> PathBuf {
 mod tests {
     use super::*;
     use crate::{ProposalAgent, ProposalAgentInput, demo_meeting_segments};
+    use std::ffi::OsString;
     use std::io::Write;
+    use std::sync::Mutex;
+
+    static NETWORK_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(previous) = &self.previous {
+                    std::env::set_var(self.key, previous);
+                } else {
+                    std::env::remove_var(self.key);
+                }
+            }
+        }
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let base = std::env::temp_dir().join(format!("standby-worker-{tag}-{}", new_id("t")));
@@ -698,6 +791,7 @@ mod tests {
 
     #[test]
     fn run_job_rejects_network_profile_without_opt_in() {
+        let _lock = NETWORK_ENV_LOCK.lock().unwrap();
         if std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
             .ok()
             .as_deref()
@@ -732,7 +826,81 @@ mod tests {
     }
 
     #[test]
+    fn network_worker_with_global_opt_in_still_requires_per_job_consent() {
+        let _lock = NETWORK_ENV_LOCK.lock().unwrap();
+        let _allow = EnvGuard::set("STANDBY_ALLOW_NETWORK_WORKER", "1");
+
+        let meeting = "m_network_consent_gate";
+        let store = EventStore::memory().unwrap();
+        let job = approved_job(&store, meeting);
+        let profile = WorkerProfile::custom(
+            "network-test",
+            "bash",
+            vec!["-lc".to_string(), "echo should-not-run".to_string()],
+            true,
+        );
+        let status = run_job(&store, &job, &profile, &temp_dir("network-consent")).unwrap();
+
+        assert_eq!(status, JobStatus::Failed);
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.jobs[0].status, JobStatus::Failed);
+        assert_eq!(
+            projection.jobs[0].failure_reason,
+            Some(JobFailureReason::ConsentRequired)
+        );
+        assert!(
+            !store
+                .has_event_type(meeting, event_types::JOB_STARTED)
+                .unwrap(),
+            "network worker must not reach started without per-job consent"
+        );
+    }
+
+    #[test]
+    fn network_worker_prompt_is_redacted_after_consent() {
+        let _lock = NETWORK_ENV_LOCK.lock().unwrap();
+        let _allow = EnvGuard::set("STANDBY_ALLOW_NETWORK_WORKER", "1");
+
+        let meeting = "m_network_redaction";
+        let store = EventStore::memory().unwrap();
+        let mut job = approved_job(&store, meeting);
+        job.profile = Some("network-redaction-test".to_string());
+        job.prompt = "Research with API key sk-live-secret and password=hunter2".to_string();
+        grant_network_worker_consent(&store, &job, "tester").unwrap();
+
+        let script_dir = temp_dir("redaction-script");
+        let script = script_dir.join("worker.sh");
+        let mut file = fs::File::create(&script).unwrap();
+        writeln!(
+            file,
+            "#!/usr/bin/env bash\nset -euo pipefail\nSCRATCH=\"$1\"\nPROMPT_FILE=\"$2\"\ncat \"$PROMPT_FILE\" > \"$SCRATCH/artifact.md\""
+        )
+        .unwrap();
+
+        let profile = WorkerProfile::custom(
+            "network-redaction-test",
+            "bash",
+            vec![
+                script.display().to_string(),
+                "{scratch}".to_string(),
+                "{prompt_file}".to_string(),
+            ],
+            true,
+        );
+        let status = run_job(&store, &job, &profile, &temp_dir("network-redaction")).unwrap();
+        assert_eq!(status, JobStatus::Completed);
+
+        let projection = store.projection(meeting).unwrap();
+        assert_eq!(projection.jobs[0].status, JobStatus::Completed);
+        let summary = &projection.artifacts[0].summary;
+        assert!(summary.contains("[REDACTED_SECRET]"));
+        assert!(!summary.contains("sk-live-secret"));
+        assert!(!summary.contains("hunter2"));
+    }
+
+    #[test]
     fn by_id_defaults_to_network_denied_local_profile() {
+        let _lock = NETWORK_ENV_LOCK.lock().unwrap();
         // Without the explicit opt-in, even a cloud id must resolve to the safe
         // network-denied local profile.
         if std::env::var("STANDBY_ALLOW_NETWORK_WORKER")

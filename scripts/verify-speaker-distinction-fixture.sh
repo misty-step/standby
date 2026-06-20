@@ -20,6 +20,7 @@ JOBS="$(mktemp -d -t standby-speakers-jobs.XXXXXX)"
 ADDR="127.0.0.1:4327"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-speaker-distinction.log 2>&1 &
 PID=$!
@@ -39,7 +40,7 @@ done
 [ "$READY" = 1 ] || { echo "daemon never became ready"; cat /tmp/standby-speaker-distinction.log; exit 1; }
 
 SEED="$(node -e 'const fs=require("fs"); const events=fs.readFileSync("crates/standby-core/tests/fixtures/speaker_distinction_meeting.jsonl","utf8").trim().split(/\n/); process.stdout.write(JSON.stringify({events}))')"
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d "$SEED" \
   -X POST "http://$ADDR/api/meetings/speakers/seed" >"$EVIDENCE/speaker-distinction-projection.json"
 

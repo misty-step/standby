@@ -150,6 +150,7 @@ pub enum SourceFailureReason {
 pub enum JobFailureReason {
     CliNotFound,
     AuthRequired,
+    ConsentRequired,
     Timeout,
     NonzeroExit,
     SandboxViolation,
@@ -390,6 +391,14 @@ pub struct AgentJobSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct NetworkWorkerConsent {
+    pub job_id: String,
+    pub profile: String,
+    pub approved_by: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Artifact {
     pub id: String,
     pub job_id: String,
@@ -469,6 +478,7 @@ pub mod event_types {
     pub const PROPOSAL_APPROVED: &str = "proposal.approved";
     pub const PROPOSAL_IGNORED: &str = "proposal.ignored";
     pub const JOB_REQUESTED: &str = "agent_job.requested";
+    pub const JOB_NETWORK_CONSENT_GRANTED: &str = "agent_job.network_consent_granted";
     pub const JOB_STARTED: &str = "agent_job.started";
     pub const JOB_PROGRESS: &str = "agent_job.progress";
     pub const JOB_COMPLETED: &str = "agent_job.completed";

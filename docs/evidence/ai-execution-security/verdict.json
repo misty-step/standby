@@ -1,0 +1,25 @@
+{
+  "status": "pass",
+  "checked_at": "2026-06-20T15:36:46.804Z",
+  "claim": "AI execution is operator-authorized, origin-safe, consent-gated, and redacted before network dispatch.",
+  "receipts": [
+    "README.md",
+    "approval-response.json",
+    "final-local-projection.json",
+    "hostile-origin-approve.json",
+    "network-no-consent-approval.json",
+    "network-operator-session.json",
+    "network-proposal-response.json",
+    "operator-session.json",
+    "proposal-response.json",
+    "read-only-projection.json",
+    "redaction-test.txt",
+    "seed-response.json",
+    "unauth-approve.json",
+    "unauth-capture-start.json",
+    "unauth-capture-stop.json",
+    "unauth-ignore.json",
+    "unauth-proposal-request.json",
+    "verdict.json"
+  ]
+}

@@ -27,6 +27,7 @@ ADDR="127.0.0.1:4328"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_ENABLE_SEED=1 STANDBY_PROPOSAL_PROVIDER=openai
 export STANDBY_OPENAI_PROPOSAL_MODEL="${STANDBY_OPENAI_PROPOSAL_MODEL:-gpt-5.5}"
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-live-model-proposal.log 2>&1 &
 PID=$!
@@ -49,11 +50,11 @@ SEED="$(node -e 'process.stdout.write(JSON.stringify({events:process.argv.slice(
   '{"type":"source.started","mode":"mic+system","mic":true,"system":true}' \
   '{"type":"segment.final","lane":"system_audio","speaker":"remote_1","text":"Customers keep asking whether local-first meeting assistants already exist and what gaps remain."}')"
 
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d "$SEED" \
   -X POST "http://$ADDR/api/meetings/live-model/seed" >"$EVIDENCE/seed-projection.json"
 
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d '{"message":"Create a research task proposal from this context for the local-first meeting assistant market","context_window":"recent","max_proposals":1}' \
   -X POST "http://$ADDR/api/meetings/live-model/proposal-requests" >"$EVIDENCE/proposal-response.json"
 

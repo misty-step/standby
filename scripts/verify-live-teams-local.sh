@@ -28,9 +28,10 @@ JOBS="$(mktemp -d -t standby-live-jobs.XXXXXX)"
 ADDR="127.0.0.1:4321"
 MTG="teams-live"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 cargo run -p standbyd >/tmp/standby-live.log 2>&1 &
 PID=$!
-cleanup() { curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true; kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS"; }
+cleanup() { curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true; kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS"; }
 trap cleanup EXIT
 
 for _ in $(seq 1 80); do
@@ -40,7 +41,7 @@ for _ in $(seq 1 80); do
 done
 
 echo "starting real local capture (mic+system)…"
-curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=mic%2Bsystem" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=mic%2Bsystem" >/dev/null
 
 # Stand in for the call. With a real Teams call joined, skip this — the call's
 # audio is captured the same way.
@@ -54,7 +55,7 @@ for _ in $(seq 1 100); do
   [ -n "$RESULT" ] && break
   sleep 0.25
 done
-curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null
 
 case "$RESULT" in
   transcript) : ;;
@@ -82,7 +83,7 @@ if [ -z "$PROP" ]; then
 fi
 
 echo "proposal $PROP detected; approving and awaiting worker artifact…"
-curl -fsS -H 'content-type: application/json' -d '{"approved_by":"dogfood"}' -X POST "http://$ADDR/api/proposals/$PROP/approve" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' -d '{"approved_by":"dogfood"}' -X POST "http://$ADDR/api/proposals/$PROP/approve" >/dev/null
 for _ in $(seq 1 120); do
   if curl -fsS "http://$ADDR/api/meetings/$MTG" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(p.artifacts.length?0:1)'; then
     echo "verify-live-teams-local passed: real capture -> transcript -> proposal -> worker artifact"

@@ -49,6 +49,7 @@ LOG="/tmp/standby-longrun.log"
 PROJ="/tmp/standby-longrun-proj.json"
 SAMPLES="$EVIDENCE_DIR/longrun-samples.csv"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 # Only ever touch the helper WE spawn: snapshot any pre-existing ones first.
 # pgrep exits 1 when nothing matches; never let that kill the script.
@@ -58,7 +59,7 @@ cargo run -p standbyd >"$LOG" 2>&1 &
 PID=$!
 HELPER_PID=""
 cleanup() {
-  curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
+  curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
   [ -n "$HELPER_PID" ] && kill -9 "$HELPER_PID" 2>/dev/null || true
   kill "$PID" 2>/dev/null || true
   rm -f "$DB" "$DB"-wal "$DB"-shm
@@ -73,7 +74,7 @@ for _ in $(seq 1 80); do
 done
 
 echo "starting daemon-driven mic+system capture for ${SECS}s…"
-curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=mic%2Bsystem" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=mic%2Bsystem" >/dev/null
 
 # Identify the helper pid the daemon just spawned (the one not present before).
 for _ in $(seq 1 24); do
@@ -115,7 +116,7 @@ done
 [ -n "$SAY_PID" ] && kill "$SAY_PID" 2>/dev/null || true
 
 echo "capture window done; sending SIGTERM via capture/stop and timing shutdown…"
-curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
 # Grade SIGTERM by the PROJECTION reaching "stopped" within 3s, not by polling the
 # helper pid. The helper emits source.stopped only after a graceful shutdown
 # (engine stop → finalize → flush), so the daemon ingesting it ⇒ SIGTERM honored. A

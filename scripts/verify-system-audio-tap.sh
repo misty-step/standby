@@ -29,11 +29,12 @@ JOBS="$(mktemp -d -t standby-sysaudio-jobs.XXXXXX)"
 ADDR="127.0.0.1:4338"
 MTG="sysaudio"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-sysaudio.log 2>&1 &
 PID=$!
 cleanup() {
-  curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
+  curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
   kill "$PID" 2>/dev/null || true
   pkill afplay 2>/dev/null || true
   /usr/bin/trash "$DB" "$DB"-wal "$DB"-shm "$JOBS" >/dev/null 2>&1 || true
@@ -50,7 +51,7 @@ PHRASE="can someone research what already exists in the market for local first m
 say -o /tmp/standby-sysaudio.aiff "$PHRASE" 2>/dev/null
 
 echo "starting system capture (auto source) and playing a known phrase…"
-curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=system" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/start?mode=system" >/dev/null
 sleep "$SECS_WAIT"          # allow tap→ScreenCaptureKit auto-fallback to settle
 afplay /tmp/standby-sysaudio.aiff; afplay /tmp/standby-sysaudio.aiff
 
@@ -70,7 +71,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-curl -fsS -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true
 sleep 1
 curl -fsS "http://$ADDR/api/meetings/$MTG" > "$EVIDENCE_DIR/system-audio-tap.json" 2>/dev/null || true
 node -e '

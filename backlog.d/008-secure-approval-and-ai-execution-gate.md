@@ -1,6 +1,6 @@
 # Secure approval and AI execution before network-capable workers
 
-Priority: P0 · Status: pending · Estimate: L
+Priority: P0 · Status: implemented · Estimate: L
 
 ## Goal
 Only an authenticated local operator can mutate meeting state or approve AI execution, and network/tool-capable workers require explicit per-job consent plus enforceable egress/secret boundaries.
@@ -23,11 +23,11 @@ Only an authenticated local operator can mutate meeting state or approve AI exec
 - P0: denial/failure is visible as an event and UI state.
 
 ## Oracle
-- [ ] An unauthenticated `POST` to capture start/stop, proposal requests, approve, and ignore returns 401/403.
-- [ ] A hostile local-origin request cannot approve a proposal through permissive CORS/CSRF behavior.
-- [ ] Approval events bind to the authenticated actor and ignore/retire request-supplied `approved_by`.
-- [ ] A network-capable worker profile cannot start without per-job consent recorded in the event log.
-- [ ] A redaction/deny fixture proves secret-like transcript or prompt content is not sent to a cloud worker without explicit consent.
+- [x] An unauthenticated `POST` to capture start/stop, proposal requests, approve, and ignore returns 401/403.
+- [x] A hostile local-origin request cannot approve a proposal through permissive CORS/CSRF behavior.
+- [x] Approval events bind to the authenticated actor and ignore/retire request-supplied `approved_by`.
+- [x] A network-capable worker profile cannot start without per-job consent recorded in the event log.
+- [x] A redaction/deny fixture proves secret-like transcript or prompt content is not sent to a cloud worker without explicit consent.
 
 ## Verification System
 - Claim: AI execution is operator-authorized, origin-safe, auditable, and not a silent exfiltration path.
@@ -47,3 +47,9 @@ Only an authenticated local operator can mutate meeting state or approve AI exec
 
 ## Notes
 Why: security/privacy lane found unauthenticated mutation endpoints, spoofable approval identity, broad network-worker risk, and transcript prompt leakage. This gates backlog item 004 and any default network/model worker.
+
+Delivered: `scripts/verify-ai-execution-security.sh` now replays unauthenticated
+and hostile-origin mutation attempts, proves server-bound approval actor
+identity, denies network worker dispatch without consent, and runs a redaction
+fixture for consented network dispatch. Receipts live in
+`docs/evidence/ai-execution-security/`.

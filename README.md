@@ -40,6 +40,11 @@ server-owned approval endpoint.
   inside a macOS `sandbox-exec` jail whose only writable target is the per-job
   scratch dir; the default profile denies network. Failures surface as
   `agent_job.failed` with a reason and an on-disk receipt.
+- **Operator execution gate.** Read-only meeting projection stays open, but every
+  local mutation route requires the server-minted operator token. The browser
+  receives it through a same-origin operator session cookie; CLI smokes pass it
+  with `x-standby-operator-token`. Approval identity is server-bound and network
+  workers require a per-job consent event plus prompt redaction before launch.
 
 ## Run
 
@@ -65,9 +70,10 @@ permission), never a hang. See `docs/evidence/real-meeting/EVIDENCE.md`.
 The default and only sandbox-accepted worker is `local-research` (a real
 subprocess, no network/model — proves the runner + sandbox). Cloud-model
 profiles (`claude-research`, `pi-research`) are opt-in only via
-`STANDBY_ALLOW_NETWORK_WORKER=1`: a network-allowed worker can read local files,
-so egress would need scoping that this slice does not yet provide. Mutation-capable
-workers remain disabled pending executable permission enforcement.
+`STANDBY_ALLOW_NETWORK_WORKER=1` and an explicit per-job consent event: a
+network-allowed worker can read local files, so egress would need scoping that
+this slice does not yet provide. Mutation-capable workers remain disabled
+pending executable permission enforcement.
 
 ## Verification
 
@@ -82,6 +88,7 @@ workers remain disabled pending executable permission enforcement.
 | `scripts/verify-local-capture-smoke.sh` | real mic frames; system-audio transcript when permitted |
 | `scripts/verify-worker-runner.sh` | out-of-request job → sandboxed worker → real artifact |
 | `scripts/verify-worker-sandbox.sh` | malicious worker cannot mutate repo, escape scratch, or exfiltrate |
+| `scripts/verify-ai-execution-security.sh` | auth, origin, server-bound actor, network consent, redaction |
 | `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
 | `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenAI proposal-provider smoke |
 | `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |

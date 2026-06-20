@@ -18,6 +18,7 @@ JOBS="$(mktemp -d -t standby-proposal-jobs.XXXXXX)"
 ADDR="127.0.0.1:4326"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-proposal-request.log 2>&1 &
 PID=$!
@@ -41,12 +42,12 @@ SEED="$(node -e 'process.stdout.write(JSON.stringify({events:process.argv.slice(
   '{"type":"segment.final","lane":"system_audio","speaker":"remote_1","text":"Customers keep asking whether local-first meeting tools already exist."}' \
   '{"type":"segment.final","lane":"system_audio","speaker":"remote_2","text":"We should understand productized meeting assistants and open-source options."}' \
   '{"type":"segment.final","lane":"microphone","speaker":"me","text":"Make the output concise enough to approve during this call."}')"
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d "$SEED" \
   -X POST "http://$ADDR/api/meetings/manual/seed" >"$EVIDENCE/manual-seed.json"
 
 STATUS="$(curl -sS -o "$EVIDENCE/manual-max-proposals-response.json" -w "%{http_code}" \
-  -H 'content-type: application/json' \
+  -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d '{"message":"Suggest two tasks from this call","context_window":"recent","max_proposals":2}' \
   -X POST "http://$ADDR/api/meetings/manual/proposal-requests")"
 if [ "$STATUS" != "400" ]; then
@@ -55,7 +56,7 @@ if [ "$STATUS" != "400" ]; then
   exit 26
 fi
 
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d '{"message":"Research the market map for local-first meeting tools using this call as context","context_window":"recent","max_proposals":1}' \
   -X POST "http://$ADDR/api/meetings/manual/proposal-requests" >"$EVIDENCE/manual-proposal-response.json"
 
@@ -108,7 +109,7 @@ node -e '
 ' >"$EVIDENCE/manual-proposal-id.txt"
 PROP="$(cat "$EVIDENCE/manual-proposal-id.txt")"
 
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d '{"message":"Create a proposal without any transcript context","context_window":"recent","max_proposals":1}' \
   -X POST "http://$ADDR/api/meetings/empty/proposal-requests" >"$EVIDENCE/manual-no-proposal-response.json"
 
@@ -132,7 +133,7 @@ node -e '
   if(p.jobs.length){console.error("FAIL: no-proposal request created a job before approval");process.exit(34)}
 '
 
-curl -fsS -H 'content-type: application/json' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' \
   -d '{"approved_by":"verify-manual-proposal"}' \
   -X POST "http://$ADDR/api/proposals/$PROP/approve" >"$EVIDENCE/manual-approval-response.json"
 

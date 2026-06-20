@@ -1,6 +1,6 @@
 # Default OpenCode subagent worker
 
-Priority: P0 · Status: ready · Estimate: L
+Priority: P0 · Status: implemented · Estimate: L
 
 ## Goal
 
@@ -43,16 +43,16 @@ visible event-log receipts for success or failure.
 
 ## Oracle
 
-- [ ] `rg "STANDBY_WORKER_PROFILE|STANDBY_ALLOW_NETWORK_WORKER|STANDBY_OMP_MODEL|omp-research|claude-research|pi-research" crates scripts README.md AGENTS.md backlog.d docs` returns only historical/superseded references, not product code or active gates.
-- [ ] Approving a seeded proposal queues an `agent_job.requested` whose worker
+- [x] `rg "STANDBY_WORKER_PROFILE|STANDBY_ALLOW_NETWORK_WORKER|STANDBY_OMP_MODEL|omp-research|claude-research|pi-research" crates scripts README.md AGENTS.md backlog.d docs` returns only historical/superseded references, not product code or active gates.
+- [x] Approving a seeded proposal queues an `agent_job.requested` whose worker
   substrate/profile is OpenCode.
-- [ ] If `opencode` is unavailable or unauthenticated, the job reaches
+- [x] If `opencode` is unavailable or unauthenticated, the job reaches
   `agent_job.failed` with receipt files; no fallback job runs.
-- [ ] If `opencode` is available, a smoke produces `agent_job.started`,
+- [x] If `opencode` is available, a smoke produces `agent_job.started`,
   progress/output events, and either an artifact or terminal failure receipt.
-- [ ] The worker sandbox negative test proves the worker cannot mutate the repo,
+- [x] The worker sandbox negative test proves the worker cannot mutate the repo,
   read common secret stores, or write outside scratch.
-- [ ] `./scripts/verify.sh` passes and includes the OpenCode-default worker
+- [x] `./scripts/verify.sh` passes and includes the OpenCode-default worker
   boundary proof.
 
 ## Verification System
@@ -85,3 +85,23 @@ visible event-log receipts for success or failure.
    the running product.
 5. Replace `scripts/verify-model-worker-boundary.sh` with an OpenCode-default
    verifier and wire it into `./scripts/verify.sh`.
+
+## Implementation Receipt
+
+- Deleted product worker profile selection and the local/OMP/Claude/Pi fallback
+  paths.
+- Approval now queues `profile: "opencode"` by construction; the daemon worker
+  loop always runs `WorkerProfile::opencode()`.
+- OpenCode runs as `opencode run --format json --model openrouter/z-ai/glm-5.2`
+  with private `job-request.json` and `prompt.txt` attachments, isolated
+  HOME/XDG dirs, scrubbed env allowlist, generated OpenCode permission config,
+  and sandbox receipts.
+- `scripts/fixtures/fake-opencode.sh` lets CI prove the product command path
+  without spending tokens; missing real OpenCode still fails visibly with
+  `agent_job.failed` and receipt files.
+- `scripts/verify-opencode-worker.sh` replaces the old OMP boundary verifier and
+  is wired into `./scripts/verify.sh`.
+- Real OpenCode route proof passed: approving a seeded proposal through
+  `standbyd` ran `openrouter/z-ai/glm-5.2`, completed through the default
+  OpenCode worker, and surfaced parsed model text (`STANDBY_OK`) instead of raw
+  JSONL in `docs/evidence/opencode-default-worker/live-real-opencode-route-verdict.json`.

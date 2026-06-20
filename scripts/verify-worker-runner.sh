@@ -3,11 +3,8 @@
 # a proposal, and confirm that (a) approval returns out-of-request (the job is not
 # completed inside the HTTP request) and (b) a background worker runs the job in a
 # sandboxed scratch and persists a real artifact file plus a completed event.
-#
-# Default profile is the deterministic local worker (no network/model). Set
-# STANDBY_WORKER_PROFILE=claude-research (and ensure the CLI is authed) to drive a
-# real model worker; a clean agent_job.failed on auth is an honest, expected
-# outcome there.
+# The smoke puts a fake `opencode` first in PATH so the product code exercises
+# the OpenCode command path without spending tokens.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -17,12 +14,14 @@ DB="$(mktemp -t standby-wr.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-wr-jobs.XXXXXX)"
 ADDR="127.0.0.1:4319"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
-export STANDBY_WORKER_PROFILE="${STANDBY_WORKER_PROFILE:-local-research}"
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
+FAKE_BIN="$(mktemp -d -t standby-fake-opencode-bin.XXXXXX)"
+ln -s "$PWD/scripts/fixtures/fake-opencode.sh" "$FAKE_BIN/opencode"
+export PATH="$FAKE_BIN:$PATH"
 
 cargo run -p standbyd >/tmp/standby-worker-runner.log 2>&1 &
 PID=$!
-cleanup() { kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS"; }
+cleanup() { kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS" "$FAKE_BIN"; }
 trap cleanup EXIT
 
 READY=0
@@ -59,12 +58,8 @@ node -e '
   const p=JSON.parse(require("fs").readFileSync("/tmp/wr-poll.json","utf8"));
   const j=p.jobs[p.jobs.length-1];
   console.log("final job status:", j.status, "profile:", j.profile, "reason:", j.failure_reason||"-");
+  if(j.profile!=="opencode"){console.error("FAIL: expected opencode worker, got", j.profile);process.exit(9)}
   if(j.status==="failed"){
-    if((j.profile||"local-research")==="local-research"){
-      console.error("FAIL: deterministic local-research worker failed:", j.error||j.failure_reason||"unknown");
-      process.exit(6)
-    }
-    // Honest outcome for an opt-in real CLI without auth; require a receipt, not a spinner.
     if(!j.receipt_path){console.error("FAIL: failed job has no receipt");process.exit(6)}
     console.log("worker failed visibly with receipt:", j.receipt_path);
     process.exit(0);

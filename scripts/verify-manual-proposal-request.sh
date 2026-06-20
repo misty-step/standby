@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Permission-free proof for Ask Standby: seed transcript spans, post an
 # operator-authored proposal request, assert the card cites transcript evidence,
-# approve it, and wait for the out-of-request worker to return a deterministic
-# local artifact.
+# approve it, and wait for the out-of-request OpenCode worker to return an artifact.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -17,15 +16,18 @@ DB="$(mktemp -t standby-proposal.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-proposal-jobs.XXXXXX)"
 ADDR="127.0.0.1:4326"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
-export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_ENABLE_SEED=1
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
+FAKE_BIN="$(mktemp -d -t standby-fake-opencode-bin.XXXXXX)"
+ln -s "$PWD/scripts/fixtures/fake-opencode.sh" "$FAKE_BIN/opencode"
+export PATH="$FAKE_BIN:$PATH"
 
 cargo run -p standbyd >/tmp/standby-proposal-request.log 2>&1 &
 PID=$!
 cleanup() {
   kill "$PID" 2>/dev/null || true
   rm -f "$DB" "$DB"-wal "$DB"-shm
-  rm -rf "$JOBS"
+  rm -rf "$JOBS" "$FAKE_BIN"
 }
 trap cleanup EXIT
 
@@ -142,6 +144,7 @@ PROP="$PROP" node -e '
   const p=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE}/manual-approval-response.json`,"utf8"));
   const job=p.jobs.find(job=>job.proposal_id===process.env.PROP);
   if(!job){console.error("FAIL: approval did not enqueue a job");process.exit(10)}
+  if(job.profile!=="opencode"){console.error("FAIL: approval should enqueue opencode, got", job.profile);process.exit(22)}
   if(job.status==="completed"){console.error("FAIL: job completed inside approval request");process.exit(11)}
   if(job.status!=="queued"){console.error("FAIL: approval response should return queued job, got", job.status);process.exit(25)}
   console.log("approval returned out-of-request; job status:", job.status);
@@ -162,12 +165,9 @@ PROP="$PROP" node -e '
   if(!job){console.error("FAIL: approved job missing from final projection");process.exit(19)}
   const progress=p.events.some(e=>e.event_type==="agent_job.progress");
   if(!progress){console.error("FAIL: no worker progress event recorded");process.exit(13)}
+  if(job.profile!=="opencode"){console.error("FAIL: expected opencode worker, got", job.profile);process.exit(22)}
   if(job.status==="failed"){
-    if((job.profile||"local-research")==="local-research"){
-      console.error("FAIL: deterministic local-research worker failed:", job.error||job.failure_reason||"unknown");
-      process.exit(14)
-    }
-    if(!job.receipt_path){console.error("FAIL: failed non-local worker has no receipt");process.exit(20)}
+    if(!job.receipt_path){console.error("FAIL: failed opencode worker has no receipt");process.exit(20)}
     console.log("worker failed visibly with receipt:", job.receipt_path);
     process.exit(0)
   }

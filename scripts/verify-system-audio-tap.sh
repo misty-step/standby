@@ -28,7 +28,7 @@ DB="$(mktemp -t standby-sysaudio.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-sysaudio-jobs.XXXXXX)"
 ADDR="127.0.0.1:4338"
 MTG="sysaudio"
-export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
+export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-sysaudio.log 2>&1 &

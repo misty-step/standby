@@ -27,11 +27,14 @@ DB="$(mktemp -t standby-live.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-live-jobs.XXXXXX)"
 ADDR="127.0.0.1:4321"
 MTG="teams-live"
-export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
+export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
+FAKE_BIN="$(mktemp -d -t standby-fake-opencode-bin.XXXXXX)"
+ln -s "$PWD/scripts/fixtures/fake-opencode.sh" "$FAKE_BIN/opencode"
+export PATH="$FAKE_BIN:$PATH"
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 cargo run -p standbyd >/tmp/standby-live.log 2>&1 &
 PID=$!
-cleanup() { curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true; kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS"; }
+cleanup() { curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/$MTG/capture/stop" >/dev/null 2>&1 || true; kill "$PID" 2>/dev/null || true; rm -f "$DB" "$DB"-wal "$DB"-shm; rm -rf "$JOBS" "$FAKE_BIN"; }
 trap cleanup EXIT
 
 for _ in $(seq 1 80); do

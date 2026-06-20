@@ -73,12 +73,12 @@ The worker direction is intentionally opinionated: approved work dispatches to
 OpenCode by default. There is no product fallback to OMP, no deterministic
 local-research fallback, no `STANDBY_WORKER_PROFILE`, no
 `STANDBY_ALLOW_NETWORK_WORKER`, and no UI/settings surface for harness choice.
+The product model is pinned in code to `openrouter/z-ai/glm-5.2`; it is not a
+runtime setting.
 If OpenCode is missing or unauthenticated, the job fails visibly with an
-`agent_job.failed` receipt instead of silently switching substrates.
-
-Current implementation note: backlog item 004 shipped an OMP/local profile
-boundary before this direction was corrected. That path is superseded and should
-be deleted/replaced by backlog item 009 rather than extended.
+`agent_job.failed` receipt instead of silently switching substrates. Verification
+uses a fake `opencode` executable in `PATH`; product code still launches
+`opencode`.
 
 ## Verification
 
@@ -94,7 +94,7 @@ be deleted/replaced by backlog item 009 rather than extended.
 | `scripts/verify-worker-runner.sh` | out-of-request job → sandboxed worker → real artifact |
 | `scripts/verify-worker-sandbox.sh` | malicious worker cannot mutate repo, escape scratch, or exfiltrate |
 | `scripts/verify-ai-execution-security.sh` | auth, origin, server-bound actor, network consent, redaction |
-| `scripts/verify-model-worker-boundary.sh` | legacy 004 OMP/local profile proof; superseded by the OpenCode-default worker rewrite |
+| `scripts/verify-opencode-worker.sh` | default OpenCode dispatch, private file transport, no fallback, visible receipts |
 | `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
 | `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenAI proposal-provider smoke |
 | `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |

@@ -19,7 +19,7 @@ DB="$(mktemp -t standby-speakers.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-speakers-jobs.XXXXXX)"
 ADDR="127.0.0.1:4327"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
-export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_ENABLE_SEED=1
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-speaker-distinction.log 2>&1 &

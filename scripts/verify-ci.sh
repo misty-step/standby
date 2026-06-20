@@ -21,8 +21,10 @@ npm --prefix ui run build
 
 cargo build -p standbyd
 
-bash -n scripts/*.sh scripts/fixtures/*.sh scripts/workers/*.sh
+bash -n scripts/*.sh scripts/fixtures/*.sh
 bash ./scripts/verify-worker-runner.sh
+CI_EVIDENCE="$(mktemp -d -t standby-ci-opencode.XXXXXX)"
+STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/opencode-worker" bash ./scripts/verify-opencode-worker.sh
 CI_EVIDENCE="$(mktemp -d -t standby-ci-evidence.XXXXXX)"
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/manual-proposal" bash ./scripts/verify-manual-proposal-request.sh
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/speaker-distinction" bash ./scripts/verify-speaker-distinction-fixture.sh

@@ -373,7 +373,7 @@ pub struct AgentJobSpec {
     pub deliverable: DeliverableSpec,
     pub permissions: PermissionProfile,
     pub status: JobStatus,
-    /// Worker profile id that ran (or will run) this job, e.g. `claude-research`.
+    /// Worker harness id that ran (or will run) this job. Product value is `opencode`.
     #[serde(default)]
     pub profile: Option<String>,
     /// Latest human-readable progress note streamed from the worker.

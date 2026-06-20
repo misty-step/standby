@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "worker": "opencode",
+  "failure_reason": null,
+  "artifact_created": true,
+  "artifact_summary_head": "STANDBY_OK",
+  "command": "standbyd approval route with real opencode, isolated HOME/XDG, model openrouter/z-ai/glm-5.2",
+  "checked_at": "2026-06-20T17:24:25.202Z"
+}

@@ -11,8 +11,7 @@ use standby_core::{
     AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource,
     Meeting, MeetingProjection, ProposalAgentRun, ProposalContextWindow, ProposalRequestEngine,
     ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root, demo_meeting_segments,
-    emit_job_failed, event_types, grant_network_worker_consent, propose_from_meeting_context,
-    run_job, run_proposal_agent,
+    emit_job_failed, event_types, propose_from_meeting_context, run_job, run_proposal_agent,
 };
 use std::collections::HashMap;
 use std::io::Read;
@@ -37,13 +36,11 @@ pub(crate) struct AppState {
 
 pub(crate) struct QueuedJob {
     pub(crate) job: AgentJobSpec,
-    pub(crate) profile_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct ApproveRequest {
     prompt: Option<String>,
-    network_worker_consent: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -419,10 +416,6 @@ async fn approve(
     Json(request): Json<ApproveRequest>,
 ) -> ApiResult<Json<MeetingProjection>> {
     let operator = authorize_operator(&state, &headers)?;
-    let requested_profile_id =
-        std::env::var("STANDBY_WORKER_PROFILE").unwrap_or_else(|_| "local-research".to_string());
-    let profile = WorkerProfile::by_id(&requested_profile_id, &repo_root());
-    let profile_id = profile.id.clone();
 
     let store = state
         .store
@@ -439,40 +432,13 @@ async fn approve(
 
     // Deterministic, server-owned: persist proposal.approved + a queued job, then
     // return immediately. The worker loop runs the job out-of-request.
-    let job = approve_proposal(
-        &store,
-        &proposal,
-        &operator.actor,
-        request.prompt,
-        &profile_id,
-    )?;
+    let job = approve_proposal(&store, &proposal, &operator.actor, request.prompt)?;
     let meeting_id = proposal.meeting_id.clone();
-
-    if profile.allow_network {
-        if request.network_worker_consent == Some(true) {
-            grant_network_worker_consent(&store, &job, &operator.actor)?;
-        } else {
-            emit_job_failed(
-                &store,
-                &job,
-                JobFailureReason::ConsentRequired,
-                "network-enabled worker profile rejected; explicit per-job consent is required",
-            )?;
-            return Ok(Json(store.projection(&meeting_id)?));
-        }
-    }
 
     let queued_projection = store.projection(&meeting_id)?;
     drop(store);
 
-    if state
-        .job_tx
-        .send(QueuedJob {
-            job: job.clone(),
-            profile_id,
-        })
-        .is_err()
-    {
+    if state.job_tx.send(QueuedJob { job: job.clone() }).is_err() {
         let store = state
             .store
             .lock()
@@ -529,13 +495,6 @@ fn open_store(path: &FsPath) -> Result<EventStore> {
     EventStore::open(path)
 }
 
-fn repo_root() -> PathBuf {
-    FsPath::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from("."))
-}
-
 fn scratch_root() -> PathBuf {
     if let Ok(dir) = std::env::var("STANDBY_JOBS_DIR") {
         return PathBuf::from(dir);
@@ -551,15 +510,12 @@ fn scratch_root() -> PathBuf {
 /// Drain queued jobs and run each out-of-request. Every job opens its own SQLite
 /// connection (WAL) so worker writes never block HTTP projection reads.
 fn spawn_worker_loop(db_path: PathBuf, mut job_rx: mpsc::UnboundedReceiver<QueuedJob>) {
-    let repo_root = repo_root();
     let scratch_root = scratch_root();
     tokio::spawn(async move {
         while let Some(queued) = job_rx.recv().await {
             let db_path = db_path.clone();
-            let repo_root = repo_root.clone();
             let scratch_root = scratch_root.clone();
             let job = queued.job;
-            let profile_id = queued.profile_id;
             let fallback_job = job.clone();
             let fallback_db = db_path.clone();
 
@@ -567,7 +523,7 @@ fn spawn_worker_loop(db_path: PathBuf, mut job_rx: mpsc::UnboundedReceiver<Queue
             // visible terminal event instead of a silently lost job.
             let result = tokio::task::spawn_blocking(move || -> Result<()> {
                 let store = EventStore::open(&db_path)?;
-                let profile = WorkerProfile::by_id(&profile_id, &repo_root);
+                let profile = WorkerProfile::opencode();
                 run_job(&store, &job, &profile, &scratch_root)?;
                 Ok(())
             })

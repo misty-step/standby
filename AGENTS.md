@@ -50,9 +50,9 @@ absent they report CAPTURE-BLOCKED, never hang.
 - Containment must be executable before this worker path is accepted: private
   prompt/request files, isolated HOME/XDG dirs, constrained workspace access,
   denied repo mutation, and receipts for every stdout/stderr/artifact/failure.
-- Current OMP/local worker profile code from backlog item 004 is superseded
-  legacy-to-delete. It may remain only as a temporary implementation gap or test
-  fixture while backlog item 009 is delivered; do not extend it.
+- Superseded OMP/local worker profile code from backlog item 004 is deleted.
+  Test fixtures may fake the `opencode` executable through `PATH`; product code
+  must still dispatch the single OpenCode harness.
 
 ## Red Lines
 

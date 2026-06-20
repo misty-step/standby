@@ -48,7 +48,7 @@ MTG="longrun"
 LOG="/tmp/standby-longrun.log"
 PROJ="/tmp/standby-longrun-proj.json"
 SAMPLES="$EVIDENCE_DIR/longrun-samples.csv"
-export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS" STANDBY_WORKER_PROFILE=local-research
+export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 # Only ever touch the helper WE spawn: snapshot any pre-existing ones first.

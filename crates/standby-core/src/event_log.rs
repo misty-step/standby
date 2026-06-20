@@ -1,7 +1,7 @@
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
-    MeetingEvent, MeetingProjection, NoProposal, Proposal, ProposalRequest, SourceFailed,
-    SourceFailure, SourceStarted, SourceState, SourceStatus, TranscriptSegment,
+    MeetingEvent, MeetingProjection, NetworkWorkerConsent, NoProposal, Proposal, ProposalRequest,
+    SourceFailed, SourceFailure, SourceStarted, SourceState, SourceStatus, TranscriptSegment,
     TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
 };
 use anyhow::{Context, Result};
@@ -263,6 +263,19 @@ impl EventStore {
             |row| row.get(0),
         )?;
         Ok(count > 0)
+    }
+
+    pub fn has_network_worker_consent(&self, meeting_id: &str, job_id: &str) -> Result<bool> {
+        for event in self.list_events(meeting_id)? {
+            if event.event_type != event_types::JOB_NETWORK_CONSENT_GRANTED {
+                continue;
+            }
+            let consent: NetworkWorkerConsent = decode(&event.payload_json)?;
+            if consent.job_id == job_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn find_latest_proposal(&self, proposal_id: &str) -> Result<Option<Proposal>> {

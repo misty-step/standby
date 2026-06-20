@@ -2,7 +2,7 @@ mod capture;
 
 use anyhow::{Context, Result};
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -11,14 +11,15 @@ use standby_core::{
     AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource,
     Meeting, MeetingProjection, ProposalAgentRun, ProposalContextWindow, ProposalRequestEngine,
     ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root, demo_meeting_segments,
-    emit_job_failed, event_types, propose_from_meeting_context, run_job, run_proposal_agent,
+    emit_job_failed, event_types, grant_network_worker_consent, propose_from_meeting_context,
+    run_job, run_proposal_agent,
 };
 use std::collections::HashMap;
+use std::io::Read;
 use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -27,6 +28,7 @@ use tracing_subscriber::EnvFilter;
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) store: Arc<Mutex<EventStore>>,
+    pub(crate) auth: Arc<OperatorAuth>,
     /// Meeting id -> running capture helper pid, for stop signalling.
     pub(crate) captures: Arc<Mutex<HashMap<String, u32>>>,
     /// Out-of-request queue: approval enqueues here; the worker loop drains it.
@@ -40,8 +42,29 @@ pub(crate) struct QueuedJob {
 
 #[derive(Debug, Deserialize)]
 struct ApproveRequest {
-    approved_by: Option<String>,
     prompt: Option<String>,
+    network_worker_consent: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OperatorAuth {
+    token: String,
+    actor: String,
+}
+
+#[derive(Debug, Clone)]
+struct Operator {
+    actor: String,
+}
+
+impl OperatorAuth {
+    fn from_env() -> Self {
+        Self {
+            token: std::env::var("STANDBY_OPERATOR_TOKEN").unwrap_or_else(|_| generate_token()),
+            actor: std::env::var("STANDBY_OPERATOR_ACTOR")
+                .unwrap_or_else(|_| "Phaedrus".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +90,7 @@ async fn main() -> Result<()> {
     let (job_tx, job_rx) = mpsc::unbounded_channel::<QueuedJob>();
     let state = AppState {
         store: Arc::new(Mutex::new(open_store(&db_path)?)),
+        auth: Arc::new(OperatorAuth::from_env()),
         captures: Arc::new(Mutex::new(HashMap::new())),
         job_tx,
     };
@@ -101,11 +125,11 @@ fn api_router(state: AppState) -> Router {
             "/api/meetings/{meeting_id}/proposal-requests",
             post(create_proposal_request),
         )
+        .route("/api/operator-session", get(operator_session))
         .route("/api/meetings/{meeting_id}", get(meeting_projection))
         .route("/api/meetings/{meeting_id}/events", get(meeting_projection))
         .route("/api/proposals/{proposal_id}/approve", post(approve))
         .route("/api/proposals/{proposal_id}/ignore", post(ignore))
-        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -117,10 +141,95 @@ async fn health() -> Json<serde_json::Value> {
     }))
 }
 
+async fn operator_session(State(state): State<AppState>) -> impl IntoResponse {
+    let cookie = format!(
+        "standby_operator_token={}; Path=/; SameSite=Strict; HttpOnly",
+        state.auth.token
+    );
+    (
+        [(header::SET_COOKIE, cookie)],
+        Json(serde_json::json!({
+            "actor": state.auth.actor,
+            "auth": "operator_session"
+        })),
+    )
+}
+
+fn authorize_operator(state: &AppState, headers: &HeaderMap) -> ApiResult<Operator> {
+    let origin = header_text(headers, header::ORIGIN);
+    if let Some(origin) = origin {
+        if !origin_matches_host(origin, headers) {
+            return Err(ApiError::forbidden(
+                "operator request origin is not allowed",
+            ));
+        }
+    }
+
+    let header_token = header_text(headers, "x-standby-operator-token");
+    let cookie_token = header_text(headers, header::COOKIE).and_then(cookie_operator_token);
+    let header_ok = header_token.is_some_and(|token| token == state.auth.token);
+    let cookie_ok = cookie_token.is_some_and(|token| token == state.auth.token);
+
+    if !header_ok && !cookie_ok {
+        return Err(ApiError::unauthorized("operator token is required"));
+    }
+    if cookie_ok && !header_ok && origin.is_none() {
+        return Err(ApiError::forbidden(
+            "operator cookie mutations require a same-origin browser request",
+        ));
+    }
+
+    Ok(Operator {
+        actor: state.auth.actor.clone(),
+    })
+}
+
+fn header_text<'a, K>(headers: &'a HeaderMap, key: K) -> Option<&'a str>
+where
+    K: axum::http::header::AsHeaderName,
+{
+    headers.get(key).and_then(|value| value.to_str().ok())
+}
+
+fn cookie_operator_token(cookie: &str) -> Option<&str> {
+    cookie.split(';').find_map(|part| {
+        let trimmed = part.trim();
+        trimmed
+            .strip_prefix("standby_operator_token=")
+            .filter(|token| !token.is_empty())
+    })
+}
+
+fn origin_matches_host(origin: &str, headers: &HeaderMap) -> bool {
+    let Some(host) = header_text(headers, header::HOST) else {
+        return false;
+    };
+    let Some(rest) = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    let origin_host = rest.split('/').next().unwrap_or_default();
+    origin_host.eq_ignore_ascii_case(host)
+}
+
+fn generate_token() -> String {
+    let mut bytes = [0u8; 32];
+    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
+        if file.read_exact(&mut bytes).is_ok() {
+            return bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        }
+    }
+    standby_core::new_id("operator")
+}
+
 async fn start_demo(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(meeting_id): Path<String>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
     let store = state
         .store
         .lock()
@@ -162,9 +271,11 @@ struct CaptureParams {
 
 async fn capture_start(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(meeting_id): Path<String>,
     Query(params): Query<CaptureParams>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
     let mode = params.mode.unwrap_or_else(|| "mic+system".to_string());
     capture::start_capture(state.clone(), meeting_id.clone(), mode).await?;
     let store = state
@@ -176,8 +287,10 @@ async fn capture_start(
 
 async fn capture_stop(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(meeting_id): Path<String>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
     capture::stop_capture(&state, &meeting_id)?;
     let store = state
         .store
@@ -196,9 +309,11 @@ struct SeedRequest {
 /// Disabled unless STANDBY_ENABLE_SEED=1.
 async fn seed_capture(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(meeting_id): Path<String>,
     Json(request): Json<SeedRequest>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
     if std::env::var("STANDBY_ENABLE_SEED").ok().as_deref() != Some("1") {
         return Err(ApiError::forbidden(
             "seed endpoint disabled; set STANDBY_ENABLE_SEED=1",
@@ -246,9 +361,11 @@ async fn seed_capture(
 
 async fn create_proposal_request(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(meeting_id): Path<String>,
     Json(request): Json<ProposalRequestInput>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
     if request.message.trim().is_empty() {
         return Err(ApiError::bad_request(
             "proposal request message is required",
@@ -297,12 +414,15 @@ async fn create_proposal_request(
 
 async fn approve(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(proposal_id): Path<String>,
     Json(request): Json<ApproveRequest>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let operator = authorize_operator(&state, &headers)?;
     let requested_profile_id =
         std::env::var("STANDBY_WORKER_PROFILE").unwrap_or_else(|_| "local-research".to_string());
-    let profile_id = WorkerProfile::by_id(&requested_profile_id, &repo_root()).id;
+    let profile = WorkerProfile::by_id(&requested_profile_id, &repo_root());
+    let profile_id = profile.id.clone();
 
     let store = state
         .store
@@ -322,11 +442,26 @@ async fn approve(
     let job = approve_proposal(
         &store,
         &proposal,
-        request.approved_by.as_deref().unwrap_or("Phaedrus"),
+        &operator.actor,
         request.prompt,
         &profile_id,
     )?;
     let meeting_id = proposal.meeting_id.clone();
+
+    if profile.allow_network {
+        if request.network_worker_consent == Some(true) {
+            grant_network_worker_consent(&store, &job, &operator.actor)?;
+        } else {
+            emit_job_failed(
+                &store,
+                &job,
+                JobFailureReason::ConsentRequired,
+                "network-enabled worker profile rejected; explicit per-job consent is required",
+            )?;
+            return Ok(Json(store.projection(&meeting_id)?));
+        }
+    }
+
     let queued_projection = store.projection(&meeting_id)?;
     drop(store);
 
@@ -356,8 +491,10 @@ async fn approve(
 
 async fn ignore(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(proposal_id): Path<String>,
 ) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
     let store = state
         .store
         .lock()
@@ -492,6 +629,13 @@ impl ApiError {
     fn forbidden(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
+            message: message.into(),
+        }
+    }
+
+    fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
             message: message.into(),
         }
     }

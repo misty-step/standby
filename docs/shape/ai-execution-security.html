@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTML Plan: AI Execution Security Gate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    :root { --ae-accent: #2442c7; --ae-accent-dark: #91a1ff; }
+    .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(92rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(25em, 0.72fr); gap: 3em; align-items: end; }
+    .grid-2, .grid-3, .grid-5 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.2em 1.35em; }
+    .wash { background: var(--ae-wash); }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1.4em 0; }
+    .phase { display: grid; grid-template-columns: 10em minmax(0, 1fr) minmax(15em, 0.68fr); gap: 1.25em; border-top: 1px solid var(--ae-line); padding-top: 1em; margin-top: 1em; }
+    .phase:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(100% - 2rem, 92rem); }
+      .hero, .grid-2, .grid-3, .grid-5, .phase { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="../context-packets/operator-action-control-and-speaker-distinction.md">PLAN / STANDBY</a>
+    <p class="ae-chrome">008 secure approval and AI execution</p>
+  </header>
+
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero" aria-label="Plan contract">
+        <div>
+          <p class="ae-chrome">BACKLOG 008 / CONTROL PLANE BEFORE TOOL WORKERS</p>
+          <h1 class="ae-strong">Only the local operator can approve AI work, and network workers need a per-job consent event before dispatch.</h1>
+          <p class="ae-lede">Chosen design: keep read-only projection open, protect every local mutation with a server-minted operator token plus same-origin checks, bind approval identity server-side, and make the worker runner independently enforce network consent plus prompt redaction.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">QUALITY SYSTEM</h2>
+          <p><strong>Standards:</strong> local-first, Rust-owned policy, append-only events, no transcript-as-instruction, no default network worker.</p>
+          <p><strong>Proof:</strong> adversarial HTTP replay, worker policy tests, full repo gate, and security critic focused on spoofed approvals or silent exfiltration.</p>
+          <div class="rule"></div>
+          <h2 class="ae-h">STOP RULES</h2>
+          <p>Stop if the normal UI cannot approve same-origin work, if a hostile origin can approve, or if a network worker can start without consent.</p>
+          <p class="ae-dim">Premise source: <code>backlog.d/008-secure-approval-and-ai-execution-gate.md</code></p>
+        </aside>
+      </section>
+
+      <section class="grid-5" aria-label="Executive contract" style="margin-top: 2em">
+        <article class="cell"><h2 class="ae-h">AUTH</h2><p>Mutation routes require operator token via same-origin cookie or explicit local CLI header.</p></article>
+        <article class="cell"><h2 class="ae-h">ORIGIN</h2><p>Browser POSTs must come from the same host that served Standby; permissive CORS is removed.</p></article>
+        <article class="cell"><h2 class="ae-h">APPROVAL</h2><p>Approval actor comes from server config, not request JSON.</p></article>
+        <article class="cell"><h2 class="ae-h">WORKERS</h2><p>Network-capable jobs need a matching consent event and redacted prompt before launch.</p></article>
+        <article class="cell wash"><h2 class="ae-h">NON-GOAL</h2><p>No OpenCode/GLM/MCP default worker in this slice; this gates that work.</p></article>
+      </section>
+
+      <section class="grid-3" aria-label="Proof surface" style="margin-top: 1px">
+        <article class="cell"><h2 class="ae-h">DRIVER</h2><p><code>scripts/verify-ai-execution-security.sh</code> starts the daemon, replays unauthenticated, hostile-origin, authenticated, spoofed-actor, and network-worker cases.</p></article>
+        <article class="cell"><h2 class="ae-h">GRADER</h2><p>HTTP status codes, event payload assertions, job terminal states, consent event checks, and redaction fixtures.</p></article>
+        <article class="cell wash"><h2 class="ae-h">EVIDENCE</h2><p><code>docs/evidence/ai-execution-security/</code> stores request/response receipts and a verdict JSON.</p></article>
+      </section>
+
+      <section class="ae-panel" style="margin-top: 2em">
+        <h2 class="ae-h">PHASES</h2>
+        <div class="phase"><strong>Docs</strong><p>Document operator session, mutation route policy, worker consent, and redaction.</p><p>README + backlog 008 stay synced.</p></div>
+        <div class="phase"><strong>Tests</strong><p>Add security replay before code and wire it into the default gate with temp evidence.</p><p>Failure must be visible before implementation.</p></div>
+        <div class="phase"><strong>Code</strong><p>Add operator token/session endpoint, route checks, server-bound actor, consent event, worker runner enforcement, redaction.</p><p>Keep interfaces narrow and Rust-owned.</p></div>
+        <div class="phase"><strong>QA</strong><p>Run security replay with persisted evidence, full gate, and hosted CI after push.</p><p>Fresh critic gets diff + oracle only.</p></div>
+      </section>
+    </article>
+  </main>
+</div>
+</body>
+</html>

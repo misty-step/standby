@@ -19,6 +19,7 @@ DB="$(mktemp -t standby-ui.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-ui-jobs.XXXXXX)"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 cargo run -p standbyd >/tmp/standby-ui.log 2>&1 &
 PID=$!
 cleanup() {
@@ -42,7 +43,7 @@ seed() { # $1=meeting, rest=event JSON objects
   local m="$1"; shift
   local body
   body="$(node -e 'process.stdout.write(JSON.stringify({events:process.argv.slice(1)}))' "$@")"
-  curl -fsS -H 'content-type: application/json' -d "$body" -X POST "http://$ADDR/api/meetings/$m/seed" >/dev/null
+  curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' -d "$body" -X POST "http://$ADDR/api/meetings/$m/seed" >/dev/null
 }
 status() { curl -fsS "http://$ADDR/api/meetings/$1" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(p.source.status)'; }
 expect() { local got; got="$(status "$1")"; if [ "$got" != "$2" ]; then echo "FAIL: $1 expected '$2' got '$got'"; exit 1; fi; echo "  $1 -> $got"; }
@@ -110,12 +111,12 @@ seed uitest-stopped '{"type":"source.started","mode":"mic"}' '{"type":"source.st
 expect uitest-stopped stopped
 
 echo "3) demo is opt-in only and still works"
-curl -fsS -X POST "http://$ADDR/api/meetings/uitest-demo/demo" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -X POST "http://$ADDR/api/meetings/uitest-demo/demo" >/dev/null
 expect uitest-demo demo; shot uitest-demo demo "&mode=demo"
 
 echo "4) approve -> out-of-request worker -> result card"
 PROP="$(curl -fsS "http://$ADDR/api/meetings/uitest-demo" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(p.proposals[0].id)')"
-curl -fsS -H 'content-type: application/json' -d '{"approved_by":"ui"}' -X POST "http://$ADDR/api/proposals/$PROP/approve" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' -d '{"approved_by":"ui"}' -X POST "http://$ADDR/api/proposals/$PROP/approve" >/dev/null
 DONE=0
 for _ in $(seq 1 120); do
   if curl -fsS "http://$ADDR/api/meetings/uitest-demo" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(p.artifacts.length?0:1)'; then DONE=1; break; fi
@@ -133,6 +134,7 @@ JOBS2="$(mktemp -d -t standby-ui2-jobs.XXXXXX)"
 ADDR2="127.0.0.1:4325"
 STANDBY_DB="$DB2" STANDBY_ADDR="$ADDR2" STANDBY_JOBS_DIR="$JOBS2" STANDBY_ENABLE_SEED=1 \
   STANDBY_WORKER_PROFILE=local-research STANDBY_LOCAL_WORKER_SCRIPT=/nonexistent/worker.sh \
+  STANDBY_OPERATOR_TOKEN="$STANDBY_OPERATOR_TOKEN" \
   cargo run -p standbyd >/tmp/standby-ui2.log 2>&1 &
 PID2=$!
 for _ in $(seq 1 80); do curl -fsS "http://$ADDR2/health" >/dev/null 2>&1 && break; sleep 0.25; done
@@ -140,10 +142,10 @@ WSEED="$(node -e 'process.stdout.write(JSON.stringify({events:process.argv.slice
   '{"type":"source.started","mode":"mic+system"}' \
   '{"type":"segment.final","lane":"system_audio","speaker":"system_audio","text":"Can someone research what already exists in the market?"}' \
   '{"type":"segment.final","lane":"microphone","speaker":"me","text":"Yes, do a prior art sweep on existing solutions."}')"
-curl -fsS -H 'content-type: application/json' -d "$WSEED" -X POST "http://$ADDR2/api/meetings/wfail/seed" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' -d "$WSEED" -X POST "http://$ADDR2/api/meetings/wfail/seed" >/dev/null
 WPROP="$(curl -fsS "http://$ADDR2/api/meetings/wfail" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write((p.proposals[0]||{}).id||"")')"
 [ -n "$WPROP" ] || { echo "FAIL: worker-fail setup produced no proposal"; cat /tmp/standby-ui2.log; exit 1; }
-curl -fsS -H 'content-type: application/json' -d '{"approved_by":"ui"}' -X POST "http://$ADDR2/api/proposals/$WPROP/approve" >/dev/null
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' -d '{"approved_by":"ui"}' -X POST "http://$ADDR2/api/proposals/$WPROP/approve" >/dev/null
 WF=0
 for _ in $(seq 1 80); do
   if curl -fsS "http://$ADDR2/api/meetings/wfail" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(p.jobs.some(j=>j.status==="failed")?0:1)'; then WF=1; break; fi

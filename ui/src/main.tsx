@@ -173,8 +173,24 @@ const JOB_LABEL: Record<JobStatus, string> = {
   canceled: "Canceled",
 };
 
+let operatorSession: Promise<void> | null = null;
+
+async function ensureOperatorSession(): Promise<void> {
+  if (!operatorSession) {
+    operatorSession = fetch("/api/operator-session", { credentials: "same-origin" }).then((response) => {
+      if (!response.ok) throw new Error(`operator session failed: ${response.status}`);
+    });
+  }
+  return operatorSession;
+}
+
 async function post(path: string): Promise<MeetingProjection> {
-  const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" } });
+  await ensureOperatorSession();
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+  });
   if (!response.ok) throw new Error(`${path} -> ${response.status}`);
   return response.json();
 }
@@ -277,18 +293,22 @@ function App() {
 }
 
 async function approveProposal(proposal: Proposal, prompt: string): Promise<MeetingProjection> {
+  await ensureOperatorSession();
   const response = await fetch(`/api/proposals/${proposal.id}/approve`, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ approved_by: "Phaedrus", prompt }),
+    body: JSON.stringify({ prompt }),
   });
   if (!response.ok) throw new Error(`approval failed: ${response.status}`);
   return response.json();
 }
 
 async function requestProposal(message: string): Promise<MeetingProjection> {
+  await ensureOperatorSession();
   const response = await fetch(`/api/meetings/${meetingId}/proposal-requests`, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message, context_window: "recent", max_proposals: 1 }),
   });
@@ -627,6 +647,7 @@ function ProposalCard({
           <span><Sparkles size={16} /> {proposal.model.provider} · {proposal.model.model}</span>
         ) : null}
       </div>
+      <p className="model-note">Network/model workers require explicit per-job consent; default local execution runs network-denied.</p>
       {proposal.model?.reasoning_summary ? (
         <p className="model-note">{proposal.model.reasoning_summary}</p>
       ) : null}
@@ -1094,6 +1115,8 @@ function failureLabel(reason: string | null): string {
       return "Worker CLI not found";
     case "auth_required":
       return "Worker CLI needs authentication";
+    case "consent_required":
+      return "Network worker needs explicit per-job consent";
     case "timeout":
       return "Worker timed out";
     case "sandbox_violation":

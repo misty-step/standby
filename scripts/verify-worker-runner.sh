@@ -18,6 +18,7 @@ JOBS="$(mktemp -d -t standby-wr-jobs.XXXXXX)"
 ADDR="127.0.0.1:4319"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
 export STANDBY_WORKER_PROFILE="${STANDBY_WORKER_PROFILE:-local-research}"
+export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-worker-runner.log 2>&1 &
 PID=$!
@@ -32,10 +33,11 @@ for _ in $(seq 1 80); do
 done
 [ "$READY" = 1 ] || { echo "daemon never became ready"; cat /tmp/standby-worker-runner.log; exit 1; }
 
-curl -fsS -X POST "http://$ADDR/api/meetings/wk/demo" > /tmp/wr-demo.json
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" \
+  -X POST "http://$ADDR/api/meetings/wk/demo" > /tmp/wr-demo.json
 PROP="$(node -e 'const p=JSON.parse(require("fs").readFileSync("/tmp/wr-demo.json","utf8")); if(!p.proposals.length)process.exit(2); process.stdout.write(p.proposals[0].id)')"
 
-curl -fsS -H 'content-type: application/json' -d '{"approved_by":"verify"}' \
+curl -fsS -H "x-standby-operator-token: $STANDBY_OPERATOR_TOKEN" -H 'content-type: application/json' -d '{"approved_by":"verify"}' \
   -X POST "http://$ADDR/api/proposals/$PROP/approve" > /tmp/wr-approve.json
 node -e '
   const p=JSON.parse(require("fs").readFileSync("/tmp/wr-approve.json","utf8"));

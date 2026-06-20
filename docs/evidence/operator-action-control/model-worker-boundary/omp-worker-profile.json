@@ -1,0 +1,16 @@
+{
+  "allow_network": true,
+  "allowed_tools": [
+    "read",
+    "grep",
+    "find",
+    "web_search"
+  ],
+  "auth_env_keys": [
+    "OPENROUTER_API_KEY",
+    "ZAI_API_KEY"
+  ],
+  "isolated_home": true,
+  "profile": "omp-research",
+  "program": "omp"
+}

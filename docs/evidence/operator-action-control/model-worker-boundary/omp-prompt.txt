@@ -1,0 +1,1 @@
+Research local-first meeting tools. Do not expose [REDACTED_SECRET] or [REDACTED_SECRET]

@@ -29,9 +29,17 @@ pub struct WorkerProfile {
     pub program: String,
     pub args: Vec<String>,
     pub allow_network: bool,
+    /// Run with HOME and profile/session state rooted under the job scratch.
+    /// Network/model workers use this so they never read user-home auth stores.
+    pub isolated_home: bool,
     /// Exact env var names forwarded to the worker (network profiles only).
     /// Scoped per profile so a worker never sees unrelated credentials.
     pub auth_env_keys: Vec<String>,
+    /// Static env vars forwarded to the worker. Values may use `{scratch}`.
+    pub static_env: Vec<(String, String)>,
+    /// CLI/tool names this profile is allowed to expose. Recorded as a receipt
+    /// and asserted by tests; concrete CLI flags still carry the enforcement.
+    pub allowed_tools: Vec<String>,
 }
 
 impl WorkerProfile {
@@ -48,7 +56,10 @@ impl WorkerProfile {
                 "{prompt_file}".to_string(),
             ],
             allow_network: false,
+            isolated_home: false,
             auth_env_keys: vec![],
+            static_env: vec![],
+            allowed_tools: vec![],
         }
     }
 
@@ -76,7 +87,10 @@ impl WorkerProfile {
                 "{prompt}".to_string(),
             ],
             allow_network: true,
+            isolated_home: true,
             auth_env_keys: vec!["ANTHROPIC_API_KEY".to_string()],
+            static_env: vec![("NO_COLOR".to_string(), "1".to_string())],
+            allowed_tools: vec!["read".to_string()],
         }
     }
 
@@ -94,10 +108,80 @@ impl WorkerProfile {
                 "{prompt}".to_string(),
             ],
             allow_network: true,
+            isolated_home: true,
             auth_env_keys: vec![
                 "ANTHROPIC_API_KEY".to_string(),
                 "OPENAI_API_KEY".to_string(),
             ],
+            static_env: vec![
+                (
+                    "PI_CODING_AGENT_DIR".to_string(),
+                    "{scratch}/pi-agent".to_string(),
+                ),
+                ("NO_COLOR".to_string(), "1".to_string()),
+                ("TERM".to_string(), "dumb".to_string()),
+            ],
+            allowed_tools: vec!["read".to_string(), "grep".to_string(), "find".to_string()],
+        }
+    }
+
+    /// OMP/GLM research profile for approved meeting jobs.
+    ///
+    /// This is the first tool-capable model worker profile. It is intentionally
+    /// opt-in, never default, and still uses the OS sandbox as the hard boundary:
+    /// the CLI runs from a per-job scratch cwd with an isolated HOME/session dir,
+    /// sees only the profile's auth env keys, and exposes only the allowed OMP
+    /// tools. The default model is current as verified by `omp models glm` on
+    /// 2026-06-20; override with `STANDBY_OMP_MODEL` if the catalog moves.
+    pub fn omp_research() -> Self {
+        let model = std::env::var("STANDBY_OMP_MODEL")
+            .unwrap_or_else(|_| "openrouter/z-ai/glm-5.2".to_string());
+        let allowed_tools = vec![
+            "read".to_string(),
+            "grep".to_string(),
+            "find".to_string(),
+            "web_search".to_string(),
+        ];
+        let tool_arg = allowed_tools.join(",");
+        Self {
+            id: "omp-research".to_string(),
+            program: "omp".to_string(),
+            args: vec![
+                "-p".to_string(),
+                "--model".to_string(),
+                model,
+                "--mode".to_string(),
+                "text".to_string(),
+                "--no-session".to_string(),
+                "--no-skills".to_string(),
+                "--no-rules".to_string(),
+                "--no-extensions".to_string(),
+                "--no-lsp".to_string(),
+                "--no-pty".to_string(),
+                "--tools".to_string(),
+                tool_arg,
+                "--auto-approve".to_string(),
+                "--cwd".to_string(),
+                "{scratch}".to_string(),
+                "--max-time".to_string(),
+                "120".to_string(),
+                "--system-prompt".to_string(),
+                "You are Standby's approved research worker. Use only the approved prompt file and enabled tools. Do not mutate repositories, write outside scratch, send messages, deploy, spend money, or expose secrets. Return a concise briefing with sources when available.".to_string(),
+                "@{prompt_file}".to_string(),
+            ],
+            allow_network: true,
+            isolated_home: true,
+            auth_env_keys: vec!["OPENROUTER_API_KEY".to_string(), "ZAI_API_KEY".to_string()],
+            static_env: vec![
+                (
+                    "PI_CODING_AGENT_DIR".to_string(),
+                    "{scratch}/omp-agent".to_string(),
+                ),
+                ("OMP_PROFILE".to_string(), "standby-worker".to_string()),
+                ("NO_COLOR".to_string(), "1".to_string()),
+                ("TERM".to_string(), "dumb".to_string()),
+            ],
+            allowed_tools,
         }
     }
 
@@ -120,6 +204,7 @@ impl WorkerProfile {
         match id {
             "claude-research" if network_workers_enabled => Self::claude_research(),
             "pi-research" if network_workers_enabled => Self::pi_research(),
+            "omp-research" if network_workers_enabled => Self::omp_research(),
             _ => local(),
         }
     }
@@ -132,7 +217,10 @@ impl WorkerProfile {
             program: program.to_string(),
             args,
             allow_network,
+            isolated_home: false,
             auth_env_keys: vec![],
+            static_env: vec![],
+            allowed_tools: vec![],
         }
     }
 }
@@ -261,8 +349,15 @@ pub fn sandbox_profile(scratch_canonical: &Path, allow_network: bool) -> String 
             ".gnupg",
             ".netrc",
             ".config/gcloud",
+            ".config/gh",
+            ".config/op",
             "Library/Keychains",
             ".docker/config.json",
+            ".claude",
+            ".codex",
+            ".omp",
+            ".opencode",
+            ".pi",
         ] {
             deny_reads.push_str(&format!(
                 "(deny file-read* (subpath \"{home}/{secret}\"))\n"
@@ -292,7 +387,7 @@ pub fn sandbox_profile(scratch_canonical: &Path, allow_network: bool) -> String 
     )
 }
 
-fn minimal_env(profile: &WorkerProfile) -> Vec<(String, String)> {
+fn minimal_env(profile: &WorkerProfile, scratch: &Path) -> Vec<(String, String)> {
     let mut env = vec![(
         "PATH".to_string(),
         std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin:/usr/local/bin".to_string()),
@@ -300,10 +395,20 @@ fn minimal_env(profile: &WorkerProfile) -> Vec<(String, String)> {
     // Cloud-model CLIs need just enough to find their auth; local workers get
     // none. Forward only the profile's explicit auth keys — never a fuzzy match —
     // so a worker can't read unrelated credentials from its environment.
-    if profile.allow_network {
+    if profile.isolated_home {
+        env.push((
+            "HOME".to_string(),
+            scratch.join("home").display().to_string(),
+        ));
+    } else if profile.allow_network {
         if let Ok(home) = std::env::var("HOME") {
             env.push(("HOME".to_string(), home));
         }
+    }
+    for (key, value) in &profile.static_env {
+        env.push((key.clone(), substitute_env(value, scratch)));
+    }
+    if profile.allow_network {
         for key in &profile.auth_env_keys {
             if let Ok(value) = std::env::var(key) {
                 env.push((key.clone(), value));
@@ -311,6 +416,10 @@ fn minimal_env(profile: &WorkerProfile) -> Vec<(String, String)> {
         }
     }
     env
+}
+
+fn substitute_env(value: &str, scratch: &Path) -> String {
+    value.replace("{scratch}", &scratch.display().to_string())
 }
 
 fn substitute(arg: &str, scratch: &Path, prompt_file: &Path, prompt: &str) -> String {
@@ -405,8 +514,30 @@ pub fn run_job(
         let job_dir = scratch_root.join(&job.id);
         fs::create_dir_all(&job_dir).context("create job scratch")?;
         let job_dir = fs::canonicalize(&job_dir).context("canonicalize job scratch")?;
+        if profile.isolated_home {
+            fs::create_dir_all(job_dir.join("home")).context("create isolated worker home")?;
+        }
+        for (key, value) in &profile.static_env {
+            if key.ends_with("_DIR") {
+                fs::create_dir_all(substitute_env(value, &job_dir))
+                    .with_context(|| format!("create worker env directory {key}"))?;
+            }
+        }
         let prompt_file = job_dir.join("prompt.txt");
         fs::write(&prompt_file, &dispatch_prompt).context("write prompt")?;
+        let manifest = serde_json::json!({
+            "profile": &profile.id,
+            "program": &profile.program,
+            "allow_network": profile.allow_network,
+            "isolated_home": profile.isolated_home,
+            "auth_env_keys": &profile.auth_env_keys,
+            "allowed_tools": &profile.allowed_tools,
+        });
+        fs::write(
+            job_dir.join("worker-profile.json"),
+            serde_json::to_string_pretty(&manifest)?,
+        )
+        .context("write worker profile manifest")?;
         let profile_path = job_dir.join("sandbox.sb");
         fs::write(
             &profile_path,
@@ -455,7 +586,7 @@ pub fn run_job(
         .args(&args)
         .current_dir(&job_dir)
         .env_clear()
-        .envs(minimal_env(profile))
+        .envs(minimal_env(profile, &job_dir))
         .stdin(Stdio::null())
         .stdout(stdout_file)
         .stderr(stderr_file)
@@ -674,6 +805,14 @@ mod tests {
             }
             Self { key, previous }
         }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
     }
 
     impl Drop for EnvGuard {
@@ -792,13 +931,7 @@ mod tests {
     #[test]
     fn run_job_rejects_network_profile_without_opt_in() {
         let _lock = NETWORK_ENV_LOCK.lock().unwrap();
-        if std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
-            .ok()
-            .as_deref()
-            == Some("1")
-        {
-            return; // opt-in is active in this environment; skip
-        }
+        let _allow = EnvGuard::remove("STANDBY_ALLOW_NETWORK_WORKER");
 
         let meeting = "m_network_profile_gate";
         let store = EventStore::memory().unwrap();
@@ -903,16 +1036,82 @@ mod tests {
         let _lock = NETWORK_ENV_LOCK.lock().unwrap();
         // Without the explicit opt-in, even a cloud id must resolve to the safe
         // network-denied local profile.
-        if std::env::var("STANDBY_ALLOW_NETWORK_WORKER")
-            .ok()
-            .as_deref()
-            == Some("1")
-        {
-            return; // opt-in is active in this environment; skip
-        }
+        let _allow = EnvGuard::remove("STANDBY_ALLOW_NETWORK_WORKER");
         let profile = WorkerProfile::by_id("claude-research", Path::new("/repo"));
         assert_eq!(profile.id, "local-research");
         assert!(!profile.allow_network);
         assert!(profile.auth_env_keys.is_empty());
+    }
+
+    #[test]
+    fn by_id_gates_omp_research_until_global_network_opt_in() {
+        let _lock = NETWORK_ENV_LOCK.lock().unwrap();
+        let _allow = EnvGuard::remove("STANDBY_ALLOW_NETWORK_WORKER");
+
+        let profile = WorkerProfile::by_id("omp-research", Path::new("/repo"));
+
+        assert_eq!(profile.id, "local-research");
+        assert!(!profile.allow_network);
+        assert!(profile.auth_env_keys.is_empty());
+    }
+
+    #[test]
+    fn omp_research_profile_uses_isolated_home_and_tool_allowlist() {
+        let _lock = NETWORK_ENV_LOCK.lock().unwrap();
+        let _allow = EnvGuard::set("STANDBY_ALLOW_NETWORK_WORKER", "1");
+        let _model = EnvGuard::set("STANDBY_OMP_MODEL", "openrouter/z-ai/glm-5.2");
+
+        let profile = WorkerProfile::by_id("omp-research", Path::new("/repo"));
+
+        assert_eq!(profile.id, "omp-research");
+        assert!(profile.allow_network);
+        assert!(profile.isolated_home);
+        assert_eq!(
+            profile.auth_env_keys,
+            vec!["OPENROUTER_API_KEY".to_string(), "ZAI_API_KEY".to_string()]
+        );
+        assert_eq!(
+            profile.allowed_tools,
+            vec![
+                "read".to_string(),
+                "grep".to_string(),
+                "find".to_string(),
+                "web_search".to_string()
+            ]
+        );
+        assert_arg_pair(&profile.args, "--model", "openrouter/z-ai/glm-5.2");
+        assert_arg_pair(&profile.args, "--tools", "read,grep,find,web_search");
+        for required in [
+            "-p",
+            "--no-session",
+            "--no-skills",
+            "--no-rules",
+            "--no-extensions",
+            "--no-lsp",
+            "--no-pty",
+            "--auto-approve",
+            "@{prompt_file}",
+        ] {
+            assert!(
+                profile.args.iter().any(|arg| arg == required),
+                "missing OMP arg {required}: {:?}",
+                profile.args
+            );
+        }
+        let tools = profile.allowed_tools.join(",");
+        for forbidden in ["bash", "edit", "write", "task", "browser"] {
+            assert!(
+                !tools.contains(forbidden),
+                "forbidden tool {forbidden} was allowed: {tools}"
+            );
+        }
+    }
+
+    fn assert_arg_pair(args: &[String], key: &str, value: &str) {
+        assert!(
+            args.windows(2)
+                .any(|window| window[0] == key && window[1] == value),
+            "missing arg pair {key} {value}: {args:?}"
+        );
     }
 }

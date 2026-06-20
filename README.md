@@ -67,13 +67,15 @@ permission), never a hang. See `docs/evidence/real-meeting/EVIDENCE.md`.
 
 ## Workers
 
-The default and only sandbox-accepted worker is `local-research` (a real
-subprocess, no network/model — proves the runner + sandbox). Cloud-model
-profiles (`claude-research`, `pi-research`) are opt-in only via
-`STANDBY_ALLOW_NETWORK_WORKER=1` and an explicit per-job consent event: a
-network-allowed worker can read local files, so egress would need scoping that
-this slice does not yet provide. Mutation-capable workers remain disabled
-pending executable permission enforcement.
+The default worker is `local-research` (a real subprocess, no network/model —
+proves the runner + sandbox). Model profiles are opt-in only via
+`STANDBY_ALLOW_NETWORK_WORKER=1` and an explicit per-job consent event. The
+first tool-capable profile is `omp-research`: it runs OMP noninteractively with
+GLM 5.2 by default (`STANDBY_OMP_MODEL` can override it), an isolated per-job
+home/session directory, only `OPENROUTER_API_KEY`/`ZAI_API_KEY` forwarded, prompt
+redaction, and an OMP tool allowlist of `read,grep,find,web_search`. Missing
+auth is a visible `agent_job.failed` with receipts. Mutation-capable workers
+remain disabled.
 
 ## Verification
 
@@ -89,6 +91,7 @@ pending executable permission enforcement.
 | `scripts/verify-worker-runner.sh` | out-of-request job → sandboxed worker → real artifact |
 | `scripts/verify-worker-sandbox.sh` | malicious worker cannot mutate repo, escape scratch, or exfiltrate |
 | `scripts/verify-ai-execution-security.sh` | auth, origin, server-bound actor, network consent, redaction |
+| `scripts/verify-model-worker-boundary.sh` | opt-in OMP profile fallback, isolated home, tool allowlist, auth-failure receipts |
 | `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
 | `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenAI proposal-provider smoke |
 | `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |

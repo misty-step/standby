@@ -4,7 +4,8 @@
 //! macOS permissions or a live call.
 
 use standby_core::{
-    EventStore, HelperEvent, LocalMacAudioSource, ProposalKind, TranscriptSourceKind,
+    DiarizationEvent, DiarizationProvider, EventStore, HelperEvent, LocalMacAudioSource,
+    ProposalKind, TranscriptSourceKind,
 };
 
 fn replay(meeting: &str) -> EventStore {
@@ -17,6 +18,8 @@ fn replay_fixture(meeting: &str, fixture: &str) -> EventStore {
     for line in fixture.lines() {
         if let Some(event) = HelperEvent::parse_line(line) {
             LocalMacAudioSource::ingest(&store, meeting, event).expect("ingest");
+        } else if let Some(event) = DiarizationEvent::parse_line(line) {
+            DiarizationProvider::ingest(&store, meeting, event).expect("ingest diarization");
         }
     }
     store
@@ -136,5 +139,40 @@ fn speaker_distinction_fixture_preserves_remote_speakers() {
             .count()
             >= 2,
         "remote speakers must not collapse to system_audio"
+    );
+}
+
+#[test]
+fn live_speaker_attribution_fixture_creates_remote_buckets_from_diarization() {
+    let meeting = "live_speaker_attribution";
+    let fixture = include_str!("fixtures/live_speaker_attribution.jsonl");
+    let store = replay_fixture(meeting, fixture);
+    let projection = store.projection(meeting).expect("projection");
+
+    let speakers: Vec<_> = projection
+        .transcript
+        .iter()
+        .filter_map(|segment| segment.speaker.as_deref())
+        .collect();
+
+    assert_eq!(speakers, vec!["remote_1", "remote_2", "remote_1", "me"]);
+    assert!(
+        projection
+            .transcript
+            .iter()
+            .filter(|segment| segment
+                .speaker
+                .as_deref()
+                .is_some_and(|speaker| { speaker != "me" && speaker != "system_audio" }))
+            .all(|segment| segment.source == TranscriptSourceKind::Diarization),
+        "remote speaker buckets should come from the diarization seam"
+    );
+    assert!(
+        projection
+            .proposals
+            .iter()
+            .flat_map(|proposal| proposal.evidence.iter())
+            .any(|evidence| evidence.speaker.as_deref() == Some("remote_1")),
+        "proposal evidence should retain diarized speaker bucket"
     );
 }

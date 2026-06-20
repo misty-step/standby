@@ -302,6 +302,162 @@ impl LocalMacAudioSource {
     }
 }
 
+/// Provider/sidecar diarization output normalized into transcript events.
+/// Inputs must carry generic remote-speaker buckets, not invented human names
+/// or local-user identity.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum DiarizationEvent {
+    #[serde(rename = "diarization.segment.partial")]
+    SegmentPartial {
+        speaker: String,
+        text: String,
+        #[serde(default)]
+        start_ms: u64,
+        #[serde(default)]
+        end_ms: u64,
+        #[serde(default)]
+        confidence: Option<f32>,
+    },
+    #[serde(rename = "diarization.segment.final")]
+    SegmentFinal {
+        speaker: String,
+        text: String,
+        #[serde(default)]
+        start_ms: u64,
+        #[serde(default)]
+        end_ms: u64,
+        #[serde(default)]
+        confidence: Option<f32>,
+    },
+}
+
+impl DiarizationEvent {
+    /// Parse one provider/sidecar JSONL event. Unknown lines are ignored so
+    /// adapters can share a stream with diagnostics without breaking capture.
+    pub fn parse_line(line: &str) -> Option<Self> {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        serde_json::from_str(line).ok()
+    }
+}
+
+/// Normalizes provider/sidecar speaker-attributed transcript segments.
+pub struct DiarizationProvider;
+
+impl DiarizationProvider {
+    pub const KIND: TranscriptSourceKind = TranscriptSourceKind::Diarization;
+
+    pub fn normalize(
+        store: &EventStore,
+        meeting_id: &str,
+        event: DiarizationEvent,
+    ) -> Result<Option<String>> {
+        match event {
+            DiarizationEvent::SegmentPartial {
+                speaker,
+                text,
+                start_ms,
+                end_ms,
+                confidence,
+            } => {
+                let segment = TranscriptSegment {
+                    id: new_id("seg"),
+                    meeting_id: meeting_id.to_string(),
+                    speaker: diarized_speaker_for(&speaker),
+                    start_ms,
+                    end_ms,
+                    text,
+                    is_final: false,
+                    confidence,
+                    source: Self::KIND,
+                };
+                store.append(
+                    meeting_id,
+                    event_types::SEGMENT_PARTIAL,
+                    Some(meeting_id),
+                    None,
+                    &segment,
+                )?;
+                Ok(None)
+            }
+            DiarizationEvent::SegmentFinal {
+                speaker,
+                text,
+                start_ms,
+                end_ms,
+                confidence,
+            } => {
+                let segment = TranscriptSegment {
+                    id: new_id("seg"),
+                    meeting_id: meeting_id.to_string(),
+                    speaker: diarized_speaker_for(&speaker),
+                    start_ms,
+                    end_ms,
+                    text: text.clone(),
+                    is_final: true,
+                    confidence,
+                    source: Self::KIND,
+                };
+                store.append(
+                    meeting_id,
+                    event_types::SEGMENT_FINAL,
+                    Some(meeting_id),
+                    None,
+                    &segment,
+                )?;
+                Ok(Some(text))
+            }
+        }
+    }
+
+    pub fn ingest(store: &EventStore, meeting_id: &str, event: DiarizationEvent) -> Result<()> {
+        if DiarizationProvider::normalize(store, meeting_id, event)?.is_some() {
+            propose_from_meeting_context(store, meeting_id)?;
+        }
+        Ok(())
+    }
+}
+
+fn diarized_speaker_for(raw: &str) -> Option<String> {
+    let speaker = raw.trim();
+    if speaker.is_empty() {
+        return None;
+    }
+    let normalized = speaker.to_ascii_lowercase().replace('-', "_");
+    if let Some(number) = normalized
+        .strip_prefix("remote_")
+        .and_then(parse_positive_number)
+    {
+        return Some(format!("remote_{number}"));
+    }
+    for prefix in ["speaker_", "spk_"] {
+        if let Some(suffix) = normalized.strip_prefix(prefix) {
+            if let Some(number) = zero_based_generic_speaker_number(suffix) {
+                return Some(format!("remote_{number}"));
+            }
+        }
+    }
+    None
+}
+
+fn parse_positive_number(value: &str) -> Option<u32> {
+    let number = value.parse::<u32>().ok()?;
+    (number > 0).then_some(number)
+}
+
+fn zero_based_generic_speaker_number(suffix: &str) -> Option<u32> {
+    if suffix.is_empty() || !suffix.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    // Generic diarization labels are treated as zero-based acoustic buckets
+    // (`SPEAKER_00`, `speaker_1`, `spk-2`). Adapters with known one-based
+    // labels should emit explicit `remote_N` to avoid off-by-one ambiguity.
+    suffix.parse::<u32>().ok().map(|number| number + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +601,63 @@ mod tests {
         assert!(speakers.contains(&"remote_1"));
         assert!(speakers.contains(&"remote_2"));
         assert!(speakers.contains(&"system_audio"));
+    }
+
+    #[test]
+    fn diarization_provider_maps_generic_speakers_to_stable_remote_buckets() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_diarized";
+        for line in [
+            r#"{"type":"diarization.segment.final","speaker":"SPEAKER_00","text":"We should compare existing meeting assistants.","start_ms":0,"end_ms":2000,"confidence":0.91}"#,
+            r#"{"type":"diarization.segment.final","speaker":"SPEAKER_01","text":"Include open-source local-first tools too.","start_ms":2100,"end_ms":4200,"confidence":0.89}"#,
+            r#"{"type":"diarization.segment.final","speaker":"SPEAKER_00","text":"Make it actionable for this call.","start_ms":4300,"end_ms":5500}"#,
+        ] {
+            let event = DiarizationEvent::parse_line(line).expect("parse diarization event");
+            DiarizationProvider::ingest(&store, meeting, event).unwrap();
+        }
+
+        let projection = store.projection(meeting).unwrap();
+        let speakers: Vec<_> = projection
+            .transcript
+            .iter()
+            .filter_map(|segment| segment.speaker.as_deref())
+            .collect();
+
+        assert_eq!(speakers, vec!["remote_1", "remote_2", "remote_1"]);
+        assert!(
+            projection
+                .transcript
+                .iter()
+                .all(|segment| segment.source == TranscriptSourceKind::Diarization)
+        );
+        assert!(
+            projection
+                .proposals
+                .iter()
+                .flat_map(|proposal| proposal.evidence.iter())
+                .any(|evidence| evidence.speaker.as_deref() == Some("remote_1")),
+            "proposal evidence should keep diarized speaker buckets"
+        );
+    }
+
+    #[test]
+    fn diarization_provider_does_not_invent_names_from_unknown_speaker_labels() {
+        assert_eq!(
+            diarized_speaker_for("SPEAKER_00").as_deref(),
+            Some("remote_1")
+        );
+        assert_eq!(
+            diarized_speaker_for("speaker_1").as_deref(),
+            Some("remote_2")
+        );
+        assert_eq!(diarized_speaker_for("spk-2").as_deref(), Some("remote_3"));
+        assert_eq!(
+            diarized_speaker_for("remote_3").as_deref(),
+            Some("remote_3")
+        );
+        assert_eq!(diarized_speaker_for("me"), None);
+        assert_eq!(diarized_speaker_for("system_audio"), None);
+        assert_eq!(diarized_speaker_for("call_audio"), None);
+        assert_eq!(diarized_speaker_for("Alice"), None);
     }
 }

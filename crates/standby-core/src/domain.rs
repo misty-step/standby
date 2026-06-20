@@ -13,6 +13,7 @@ pub enum TranscriptSourceKind {
     Bot,
     Platform,
     LocalMac,
+    Diarization,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]

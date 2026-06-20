@@ -8,11 +8,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
-    AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, JobStatus,
-    LocalMacAudioSource, Meeting, MeetingProjection, ProposalAgentRun, ProposalContextWindow,
-    ProposalRequestEngine, ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root,
-    demo_meeting_segments, emit_job_failed, event_types, propose_from_meeting_context, run_job,
-    run_proposal_agent,
+    AgentJobSpec, CaptureMode, DiarizationEvent, DiarizationProvider, EventStore, HelperEvent,
+    JobFailureReason, JobStatus, LocalMacAudioSource, Meeting, MeetingProjection, ProposalAgentRun,
+    ProposalContextWindow, ProposalRequestEngine, ProposalStatus, WorkerProfile, approve_proposal,
+    default_scratch_root, demo_meeting_segments, emit_job_failed, event_types,
+    propose_from_meeting_context, run_job, run_proposal_agent,
 };
 use std::collections::HashMap;
 use std::io::Read;
@@ -357,6 +357,8 @@ async fn seed_capture(
         }
         if let Some(event) = HelperEvent::parse_line(line) {
             LocalMacAudioSource::ingest(&store, &meeting_id, event)?;
+        } else if let Some(event) = DiarizationEvent::parse_line(line) {
+            DiarizationProvider::ingest(&store, &meeting_id, event)?;
         }
     }
     Ok(Json(store.projection(&meeting_id)?))

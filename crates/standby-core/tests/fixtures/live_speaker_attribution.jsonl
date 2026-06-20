@@ -1,0 +1,7 @@
+{"type":"source.started","mode":"mic+system","mic":true,"system":true}
+{"type":"audio.level","lane":"system_audio","rms":0.08,"peak":0.5,"captured_ms":1000}
+{"type":"diarization.segment.final","speaker":"SPEAKER_00","text":"Can someone compare the market for private meeting assistants?","start_ms":0,"end_ms":2100,"confidence":0.93}
+{"type":"diarization.segment.final","speaker":"SPEAKER_01","text":"Please include local-first and open-source options.","start_ms":2200,"end_ms":4100,"confidence":0.88}
+{"type":"diarization.segment.final","speaker":"SPEAKER_00","text":"Make the output concise enough to approve during the call.","start_ms":4200,"end_ms":6100,"confidence":0.9}
+{"type":"segment.final","lane":"microphone","speaker":"me","text":"Good, use the transcript as evidence but do not invent names."}
+{"type":"source.stopped"}

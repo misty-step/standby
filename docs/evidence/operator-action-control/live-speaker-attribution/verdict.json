@@ -1,0 +1,17 @@
+{
+  "status": "pass",
+  "checked_at": "2026-06-20T23:27:35.883Z",
+  "claim": "diarization/provider fixture creates stable remote speaker buckets without fake names",
+  "speakers": [
+    "me",
+    "remote_1",
+    "remote_2"
+  ],
+  "remote_turns": 3,
+  "receipts": [
+    "live-speaker-attribution-dom.html",
+    "live-speaker-attribution-projection.json",
+    "live-speaker-attribution.png",
+    "verdict.json"
+  ]
+}

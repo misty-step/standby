@@ -46,5 +46,6 @@ STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/manual-proposal" bash ./scripts/verify-ma
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/ai-execution-security" bash ./scripts/verify-ai-execution-security.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/opencode-worker" bash ./scripts/verify-opencode-worker.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/worker-recovery" bash ./scripts/verify-worker-recovery.sh
+STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/live-speaker-attribution" bash ./scripts/verify-live-speaker-attribution.sh
 
 echo "standby verification passed"

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standby 005 - Live Speaker Attribution</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #171717;
+        --muted: #62605a;
+        --line: #d8d2c3;
+        --paper: #f7f4eb;
+        --panel: #ffffff;
+        --accent: #0f766e;
+        --warn: #9a3412;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--paper);
+        color: var(--ink);
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 44px 28px 72px;
+      }
+      h1, h2, h3 { margin: 0; line-height: 1.05; }
+      h1 { font-size: 44px; letter-spacing: 0; max-width: 820px; }
+      h2 { font-size: 22px; margin-bottom: 14px; }
+      p { color: var(--muted); line-height: 1.55; }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 28px;
+        align-items: end;
+        min-height: 58vh;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 34px;
+      }
+      .kicker { color: var(--accent); font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.08em; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 28px;
+      }
+      .wide {
+        grid-column: 1 / -1;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 14px;
+      }
+      th, td {
+        border-top: 1px solid var(--line);
+        padding: 12px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th { color: var(--muted); font-weight: 700; }
+      code {
+        background: #ebe6d8;
+        border-radius: 4px;
+        padding: 2px 5px;
+      }
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .step {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fbfaf6;
+        min-height: 92px;
+      }
+      .step strong { display: block; margin-bottom: 8px; }
+      .risk { color: var(--warn); }
+      @media (max-width: 860px) {
+        .hero, .grid, .flow { grid-template-columns: 1fr; }
+        h1 { font-size: 34px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div>
+          <p class="kicker">Backlog 005</p>
+          <h1>Live speaker attribution without fake names</h1>
+          <p>
+            Standby now has a Rust-owned diarization/provider seam. Generic provider labels map into stable
+            remote buckets, then the existing event log, proposal evidence, and UI rendering paths carry those
+            buckets forward.
+          </p>
+        </div>
+        <div class="panel">
+          <h2>Acceptance</h2>
+          <p>Fixture-backed provider attribution emits at least two remote speakers, renders them as Speaker 1 and Speaker 2, and prevents raw provider labels from leaking into the UI.</p>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Chosen Slice</h2>
+          <p>Add <code>DiarizationProvider</code> and <code>diarization.segment.final</code> JSONL events. Normalize generic zero-based acoustic labels into <code>remote_N</code>; provider-specific adapters must emit explicit <code>remote_N</code> when their labels use a different scheme.</p>
+        </article>
+        <article class="panel">
+          <h2>Boundary</h2>
+          <p>The Swift helper remains capture-only. Provider credentials, buffering, naming, and diarization orchestration stay outside the helper.</p>
+        </article>
+        <article class="panel">
+          <h2>Limit</h2>
+          <p>No acoustic diarizer is bundled yet. This proves the product contract for provider and sidecar outputs.</p>
+        </article>
+
+        <article class="panel wide">
+          <h2>System Flow</h2>
+          <div class="flow">
+            <div class="step"><strong>Provider</strong> Emits remote acoustic buckets such as <code>SPEAKER_00</code>, <code>SPEAKER_01</code> transcript spans.</div>
+            <div class="step"><strong>Rust Seam</strong> Maps generic labels to <code>remote_1</code>, <code>remote_2</code>.</div>
+            <div class="step"><strong>Event Log</strong> Stores ordinary transcript segment events.</div>
+            <div class="step"><strong>Projection</strong> Carries speaker buckets into proposals and UI state.</div>
+            <div class="step"><strong>UI</strong> Renders <code>Speaker 1</code>, <code>Speaker 2</code>, no fake names.</div>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <h2>Tradeoffs</h2>
+          <table>
+            <thead><tr><th>Option</th><th>Benefit</th><th>Cost</th><th>Decision</th></tr></thead>
+            <tbody>
+              <tr><td>Rust provider seam</td><td>Provider-neutral, testable, local module boundary.</td><td>Fixture-backed until provider is plugged in.</td><td>Ship now.</td></tr>
+              <tr><td>Swift diarization</td><td>Potentially low latency.</td><td>Breaks capture-helper boundary.</td><td>Reject.</td></tr>
+              <tr><td>Cloud SDK first</td><td>Fast real diarization proof.</td><td>Credentials and buffering before contract stability.</td><td>Defer.</td></tr>
+              <tr><td>Manual names</td><td>Useful once keys exist.</td><td>Does not identify speakers by itself.</td><td>Later support.</td></tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel wide">
+          <h2>Proof</h2>
+          <p>
+            <code>scripts/verify-live-speaker-attribution.sh</code> runs the fixture through the daemon seed endpoint,
+            checks projection speakers and proposal evidence, dumps the rendered DOM, captures a screenshot, and writes
+            <code>docs/evidence/operator-action-control/live-speaker-attribution/verdict.json</code>.
+          </p>
+          <p class="risk">Residual risk: true live acoustic diarization still requires an OpenAI, ElevenLabs, pyannote, or NVIDIA adapter behind this seam.</p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

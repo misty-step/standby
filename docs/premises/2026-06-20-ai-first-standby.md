@@ -20,8 +20,8 @@ test fixture.
 - `crates/standby-core/src/proposal_request.rs` lets the operator force a card,
   but still constructs the proposal deterministically.
 - `crates/standby-core/src/worker.rs` has visible worker lifecycle and sandbox
-  boundaries, but model/tool worker profiles remain gated and not yet a robust
-  agent execution plane.
+  boundaries, but the current local/OMP worker profile model is superseded by
+  the default OpenCode subagent worker direction.
 - `backlog.d/005-live-speaker-diarization-or-provider-attribution.md` tracks
   the live multi-speaker gap: local capture still does not create stable remote
   speakers.
@@ -39,6 +39,7 @@ test fixture.
 ## Design Consequence
 
 Standby needs a model-native `ProposalAgent` boundary with deterministic
-approval, policy, event logging, worker dispatch, and quality gates around it.
-The existing heuristic proposal engine should be demoted to fallback/test-only
-once the model-native path exists.
+approval, policy, event logging, default OpenCode worker dispatch, and quality
+gates around it. The existing heuristic proposal engine should be demoted to
+fallback/test-only once the model-native path exists, and the worker profile
+system should be deleted rather than extended.

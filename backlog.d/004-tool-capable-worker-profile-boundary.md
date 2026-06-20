@@ -1,6 +1,23 @@
-# Gate a tool-capable OMP worker profile behind executable safety
+# Superseded: Gate a tool-capable OMP worker profile behind executable safety
 
-Priority: P1 · Status: implemented · Estimate: L
+Priority: P1 · Status: superseded · Estimate: L
+
+## Supersession
+
+Superseded on 2026-06-20 by the OpenCode-default subagent direction captured in
+`docs/decisions/0002-opencode-default-subagent-worker.md` and
+`backlog.d/009-default-opencode-subagent-worker.md`.
+
+The implemented 004 path is no longer the product direction:
+
+- OMP is not the unsupervised worker harness.
+- `local-research` is not a product fallback.
+- `STANDBY_WORKER_PROFILE`, `STANDBY_ALLOW_NETWORK_WORKER`, and
+  `STANDBY_OMP_MODEL` are not acceptable product settings.
+- Approval should dispatch the single OpenCode worker by default; if OpenCode
+  cannot run, the job fails visibly with receipts.
+
+Keep this file as implementation history only. Do not extend this design.
 
 ## Goal
 Add an opt-in model/tool worker profile only after network egress, secret reads, scratch writes, and allowed tool surfaces are executable and testable.

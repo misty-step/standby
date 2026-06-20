@@ -17,7 +17,7 @@ Date: 2026-06-20
 | Product/value | complete | `docs/vision.md`, operator prompt, `docs/premises/2026-06-20-ai-first-standby.md` | Reframed Standby as AI-first meeting command surface, not keyword proposal demo. |
 | Architecture | complete | `crates/standby-core/src/engine.rs`, `proposal_request.rs`, architecture lane | Root cause is missing `ProposalAgent` boundary. |
 | Verification | complete | `scripts/verify*.sh`, verification lane | Added proposal-quality gate as first child of P0 epic. |
-| Security/privacy | complete | `crates/standbyd/src/main.rs`, `worker.rs`, security lane | Added P0 secure approval/AI execution gate before network workers. |
+| Security/privacy | complete | `crates/standbyd/src/main.rs`, `worker.rs`, security lane | Added P0 secure approval/AI execution gate before default OpenCode workers. |
 | Speech/diarization | partial | `docs/research/speaker-diarization-options.md`, `docs/research/realtime-voice-model-substrates.md` | Kept diarization as separate adapter epic; updated provider facts. |
 | Agent readiness | complete | `AGENTS.md`, Harness Kit shared primitive edits | Repo and shared harness now forbid heuristic-primary model-native product brains. |
 | Runtime reliability | partial | `backlog.d/006-recover-worker-queue-after-daemon-restart.md` | Existing recovery ticket remains after worker visibility work. |
@@ -35,8 +35,10 @@ dispatches bounded work, and leaves receipts. The near-term sequence is:
    tool workers exist.
 3. Add true diarization/provider attribution through a normalized adapter.
 4. Recover queued jobs after daemon restart.
-5. Add tool-capable workers once security gates prove egress, secrets, tools,
-   and scratch isolation.
+5. Replace the superseded worker-profile path with the single default OpenCode
+   subagent worker.
+6. Add tighter egress scoping after the default OpenCode path has executable
+   filesystem/env/workspace/receipt proof.
 
 ## Emissions
 
@@ -47,17 +49,19 @@ dispatches bounded work, and leaves receipts. The near-term sequence is:
 - Added `backlog.d/008-secure-approval-and-ai-execution-gate.md`.
   **Why:** security lane found unauthenticated mutation routes, spoofable
   approval identity, and global network-worker enablement risk.
-- Updated `backlog.d/004-tool-capable-worker-profile-boundary.md`.
-  **Why:** real model/tool workers must depend on the new security gate.
+- Superseded `backlog.d/004-tool-capable-worker-profile-boundary.md` and added
+  `backlog.d/009-default-opencode-subagent-worker.md`.
+  **Why:** the product direction is OpenCode by default, not opt-in OMP/local
+  worker profiles.
 - Updated `backlog.d/005-live-speaker-diarization-or-provider-attribution.md`.
   **Why:** diarization remains real product work, but OpenAI diarization is a
   buffered transcription side-channel, not Realtime.
 
 ## Best Next Pickup
 
-Pick up `008-secure-approval-and-ai-execution-gate.md` next, while expanding
-`007`'s provider/eval coverage with more held-out transcripts and a realtime
-audio provider. Do not reintroduce keyword cue lists as the proposal brain.
+Pick up `009-default-opencode-subagent-worker.md` next. Do not extend the
+superseded OMP/local profile path, and do not reintroduce keyword cue lists as
+the proposal brain.
 
 ## Residual Risk
 

@@ -4,12 +4,15 @@ Bigger moves surfaced while delivering this slice. Filed here rather than
 smuggled into the branch.
 
 ## Security / workers
-- **Egress-scoped sandbox for cloud-model workers.** `claude-research` /
-  `pi-research` need network for the model API, but `sandbox-exec` can't scope
-  egress to just that endpoint, so a network-allowed worker can exfiltrate any
-  readable file. They are opt-in only today. To make them default-safe, run the
-  worker behind a local egress proxy that allowlists the model API host, or use a
-  network namespace / per-job VPN. Until then, mutation/cloud workers stay gated.
+- **Default OpenCode subagent worker.** Supersedes the older `claude-research`,
+  `pi-research`, `local-research`, and OMP profile plan. Approved work should
+  dispatch to OpenCode by default with no profile selector or fallback. Track the
+  implementation in `backlog.d/009-default-opencode-subagent-worker.md`.
+- **Egress-scoped sandbox for networked workers.** OpenCode will need model/API
+  network access, while `sandbox-exec` cannot scope egress by host. The worker
+  boundary still needs enforceable env, filesystem, workspace, and receipt
+  controls; tighter network allowlisting can follow through a proxy or per-job
+  network namespace. Do not reintroduce product profile toggles for this.
 - **Per-meeting scoping of approve/ignore.** `new_id` is now collision-resistant,
   but `find_latest_proposal` is still a global by-id lookup. Thread `meeting_id`
   through the approve/ignore routes and scope the query for defense in depth.
@@ -62,8 +65,9 @@ What remains:
 ## Durability / scale
 - **Operator-controlled proposals.** The Ask Standby request route, proposal
   request event, approval/job/report path, and source-provided speaker-token v1
-  are delivered in this branch. The OMP/GLM/MCP worker-profile boundary remains
-  gated in `backlog.d/004-tool-capable-worker-profile-boundary.md`.
+  are delivered. The old OMP/GLM worker-profile boundary is superseded by the
+  OpenCode-default worker ticket in
+  `backlog.d/009-default-opencode-subagent-worker.md`.
 - **Worker-queue recovery on restart.** The job queue is an in-memory mpsc; jobs
   queued at a crash/restart are lost. On startup, re-enqueue jobs that have
   `agent_job.requested` but no terminal event. Tracked in

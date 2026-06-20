@@ -1,5 +1,14 @@
 # Context Packet: Operator-Controlled Proposals And Speaker Distinction
 
+## Supersession Notice
+
+The worker portions of this context packet were superseded on 2026-06-20 by
+`docs/decisions/0002-opencode-default-subagent-worker.md` and
+`backlog.d/009-default-opencode-subagent-worker.md`. Do not use the
+`local-research` default, OMP/GLM profile, or opt-in worker-profile guidance
+below as current product direction. The current direction is a single default
+OpenCode worker with no fallback and no harness settings.
+
 ## Goal
 
 Let the meeting operator intentionally ask Standby for proposal cards during a
@@ -17,9 +26,8 @@ of undifferentiated `call audio`.
   projection/UI support for stable remote speaker labels, with a first verified
   source of labels. Local diarization may output `Speaker 1`, `Speaker 2`, etc.;
   provider adapters may output names later.
-- **Ticket C: Tool-capable model worker profile.** Shape, but do not make
-  default, an OMP/GLM-style worker profile with MCP/tools/skills only after the
-  network, secret, scratch, and permission boundaries are executable.
+- **Ticket C: Default OpenCode subagent worker.** Replace the older
+  worker-profile plan with a single OpenCode worker path and no fallback.
 
 ## Non-Goals
 
@@ -27,7 +35,7 @@ of undifferentiated `call audio`.
   approval.
 - No external sends, repo mutation, deploys, spending, or calendar/email actions
   in this slice.
-- No default cloud-model worker until egress is scoped and sandbox proof passes.
+- No worker-harness selector or fallback path.
 - No promise of true human names from local audio alone. Local diarization gives
   stable speaker buckets; names need either manual aliases or provider/roster
   data.
@@ -40,8 +48,8 @@ of undifferentiated `call audio`.
 - Every proposal request, proposal, approval, job event, artifact, and failure is
   append-only in SQLite.
 - Normal live capture must continue while this feature is used.
-- `local-research` remains the default accepted worker profile until a stronger
-  profile passes executable security gates.
+- OpenCode is the only product worker harness; `local-research` may exist only
+  as a test fixture while the replacement lands.
 - UI must make uncertainty visible: "Speaker 2" is acceptable; fake names are
   not.
 
@@ -74,9 +82,8 @@ of undifferentiated `call audio`.
   meeting: `system_audio`.
 - Proposal creation is automatic and cue-based. The operator can approve or
   ignore a card, but cannot yet ask Standby to create cards on demand.
-- Approval/job/report is wired and verified for `local-research`.
-- `claude-research` and `pi-research` exist behind
-  `STANDBY_ALLOW_NETWORK_WORKER=1`; OMP/GLM/MCP/harness/skills are not wired.
+- Approval/job/report is currently wired to superseded local/OMP profile code.
+  That is an implementation gap, not the product direction.
 
 ## Alternatives
 
@@ -88,8 +95,9 @@ of undifferentiated `call audio`.
 | Local diarization of system audio | Preserves local-first promise; can distinguish speakers without Teams/Graph auth. | Buckets, not names; hard to grade without audio fixtures; may be inaccurate in crosstalk. | Choose for local speaker distinction v1 if a fixture can grade it. |
 | Provider transcript adapter for Teams/Graph/Vexa/Recall | Best named speakers and roster mapping. | App-specific, auth/vendor/tenant issues; not the universal local capture path. | Defer behind `TranscriptSource`. |
 | Manual speaker aliases only | Small UI/data change, useful once labels exist. | Does not distinguish speakers by itself. | Include as support, not the whole ticket. |
-| OMP/GLM with full MCP/tool/skills as default worker | Matches the desired "real subagent" idea. | Network + tools + readable local files can exfiltrate secrets; MCP/tool surfaces can mutate unless scoped. | Shape now, gate later. |
-| Keep `local-research` only | Safe and verified. | Not a real research/model worker; poor product demo for meaningful tasks. | Keep default, but add opt-in stronger profile only after security proof. |
+| OpenCode default worker | Matches the desired unsupervised subagent path and the cross-repo substrate research. | Requires hardening file transport, env, workspace, receipts, and failure projection. | Choose now. |
+| OMP/GLM with full MCP/tool/skills as default worker | Older direction. | OMP is terminal/local-first, not the chosen unsupervised product harness. | Reject. |
+| Keep `local-research` only | Safe and verified. | Not a real research/model worker; poor product demo for meaningful tasks. | Reject as product behavior; keep only test fixtures. |
 
 ## Recommended Design
 
@@ -138,22 +146,22 @@ Stop if the implementation cannot produce stable speaker keys from any source;
 do not ship a UI rename layer over a single `system_audio` bucket and call it
 speaker distinction.
 
-### Ticket C: Model/tool worker profile
+### Ticket C: Default OpenCode subagent worker
 
-Do not wire OMP/GLM/MCP/skills as the default worker in the same slice as Ask
-Standby. Shape it as a separate worker-profile milestone:
+Delete the worker-profile product model and replace it with one default
+OpenCode worker path:
 
-- Add `WorkerProfile::omp_research()` or equivalent only behind
-  `STANDBY_ALLOW_NETWORK_WORKER=1`.
-- Create a per-job harness home with only approved skills/tools/MCP config.
-- Forward only the credentials required for that profile.
-- Add an egress-scoped boundary before defaulting it: local proxy allowlist,
-  network namespace, or equivalent host-level control.
+- Approval queues OpenCode by default.
+- No `STANDBY_WORKER_PROFILE`, `STANDBY_ALLOW_NETWORK_WORKER`, OMP path, or
+  local fallback survives in product code.
+- Create a per-job OpenCode home/config with only approved filesystem, env, and
+  workspace access.
+- Use private prompt/request files and JSON event capture.
 - Extend the sandbox negative test to cover:
   - cannot read common secret stores,
   - cannot mutate repo,
   - cannot write outside scratch,
-  - cannot call unapproved MCP tools,
+  - cannot call unapproved external tools,
   - cannot send external messages,
   - records failure receipts.
 
@@ -170,8 +178,10 @@ Commands that must exist and pass after implementation:
   least two remote speakers and asserts the projection and UI render distinct
   stable speaker labels. If using local diarization, the fixture must be an audio
   or helper-event fixture that fails when all speakers collapse to `system_audio`.
-- `./scripts/verify-worker-sandbox.sh` — remains green; if an OMP/GLM profile is
-  added, it must be included as an opt-in profile test before being accepted.
+- OpenCode-default worker verifier — approves a seeded card, observes OpenCode
+  job start/terminal event or missing-auth receipt, and proves no fallback runs.
+- `./scripts/verify-worker-sandbox.sh` — remains green for the OpenCode worker
+  boundary.
 - `STANDBY_LIVE_CAPTURE=1 ./scripts/verify-live-teams-local.sh` — still proves
   live capture can run while Ask Standby is used.
 
@@ -207,8 +217,8 @@ Observable QA:
 
 - Proposal quality can regress into noisy cards. Mitigate with an explicit
   operator request path, max proposal count, and visible no-proposal state.
-- Worker profile expansion is the security risk. Keep `local-research` default
-  until egress and tool scopes are enforced.
+- OpenCode worker hardening is the security risk. Keep approval deterministic
+  and make failure receipts explicit; do not add a profile selector.
 - Speaker diarization can be confidently wrong. Label buckets honestly and make
   aliases user-owned.
 - Live meeting capture should not be restarted during implementation; develop
@@ -220,8 +230,8 @@ Rollback:
   and approval intact.
 - Disable speaker attribution source and fall back to current `Me` /
   `Call audio` labels.
-- Leave OMP/GLM profile unset; `WorkerProfile::by_id` must fall back to
-  `local-research` unless the opt-in env is present.
+- Disable OpenCode job dispatch while preserving proposal creation and approval
+  events.
 
 ## Premise Source
 

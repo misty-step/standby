@@ -2,7 +2,7 @@
 
 Standby is a local-first meeting command surface: a quiet panel that listens to
 the call playing on your Mac, drafts evidence-cited proposal cards, and routes
-approved work to a sandboxed local worker agent — keeping a durable, append-only
+approved work to an OpenCode subagent worker - keeping a durable, append-only
 event ledger of every step.
 
 The realtime path is intentionally narrow. It can create proposal cards and
@@ -35,16 +35,18 @@ server-owned approval endpoint.
   transcript spans, and asks the proposal agent for a grounded card or a
   `proposal.not_created` decision. It still does not run work until a card is
   approved.
-- **Sandboxed worker.** Approval writes `proposal.approved` + a queued
-  `agent_job.requested` and returns immediately. A background worker runs the job
-  inside a macOS `sandbox-exec` jail whose only writable target is the per-job
-  scratch dir; the default profile denies network. Failures surface as
-  `agent_job.failed` with a reason and an on-disk receipt.
+- **OpenCode subagent worker.** Approval writes `proposal.approved` + a queued
+  `agent_job.requested` and returns immediately. The product path is a single
+  OpenCode worker harness: no OMP fallback, no local-research fallback, no worker
+  profile selector, and no harness settings. The server owns sandbox policy,
+  redaction, event recording, and receipts; OpenCode owns unsupervised agentic
+  execution.
 - **Operator execution gate.** Read-only meeting projection stays open, but every
   local mutation route requires the server-minted operator token. The browser
   receives it through a same-origin operator session cookie; CLI smokes pass it
-  with `x-standby-operator-token`. Approval identity is server-bound and network
-  workers require a per-job consent event plus prompt redaction before launch.
+  with `x-standby-operator-token`. Approval identity is server-bound. Approving
+  a card is the product execution gate; worker policy and prompt redaction are
+  enforced by the server before launch.
 
 ## Run
 
@@ -67,15 +69,16 @@ permission), never a hang. See `docs/evidence/real-meeting/EVIDENCE.md`.
 
 ## Workers
 
-The default worker is `local-research` (a real subprocess, no network/model —
-proves the runner + sandbox). Model profiles are opt-in only via
-`STANDBY_ALLOW_NETWORK_WORKER=1` and an explicit per-job consent event. The
-first tool-capable profile is `omp-research`: it runs OMP noninteractively with
-GLM 5.2 by default (`STANDBY_OMP_MODEL` can override it), an isolated per-job
-home/session directory, only `OPENROUTER_API_KEY`/`ZAI_API_KEY` forwarded, prompt
-redaction, and an OMP tool allowlist of `read,grep,find,web_search`. Missing
-auth is a visible `agent_job.failed` with receipts. Mutation-capable workers
-remain disabled.
+The worker direction is intentionally opinionated: approved work dispatches to
+OpenCode by default. There is no product fallback to OMP, no deterministic
+local-research fallback, no `STANDBY_WORKER_PROFILE`, no
+`STANDBY_ALLOW_NETWORK_WORKER`, and no UI/settings surface for harness choice.
+If OpenCode is missing or unauthenticated, the job fails visibly with an
+`agent_job.failed` receipt instead of silently switching substrates.
+
+Current implementation note: backlog item 004 shipped an OMP/local profile
+boundary before this direction was corrected. That path is superseded and should
+be deleted/replaced by backlog item 009 rather than extended.
 
 ## Verification
 
@@ -91,7 +94,7 @@ remain disabled.
 | `scripts/verify-worker-runner.sh` | out-of-request job → sandboxed worker → real artifact |
 | `scripts/verify-worker-sandbox.sh` | malicious worker cannot mutate repo, escape scratch, or exfiltrate |
 | `scripts/verify-ai-execution-security.sh` | auth, origin, server-bound actor, network consent, redaction |
-| `scripts/verify-model-worker-boundary.sh` | opt-in OMP profile fallback, isolated home, tool allowlist, auth-failure receipts |
+| `scripts/verify-model-worker-boundary.sh` | legacy 004 OMP/local profile proof; superseded by the OpenCode-default worker rewrite |
 | `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
 | `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenAI proposal-provider smoke |
 | `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |

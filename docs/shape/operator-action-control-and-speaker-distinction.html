@@ -47,7 +47,7 @@
           <h2 class="ae-h">CHOSEN DESIGN</h2>
           <p><strong>First:</strong> operator prompt -> proposal request event -> one to three proposal cards -> existing approval/job/report path.</p>
           <p><strong>Second:</strong> speaker attribution seam with a verified source of stable remote speaker keys.</p>
-          <p><strong>Gated:</strong> OMP/GLM/MCP worker profile only after egress, tools, secrets, and scratch boundaries are executable.</p>
+          <p><strong>Updated:</strong> worker-profile planning is superseded by the default OpenCode subagent worker in ADR 0002 and backlog 009.</p>
           <div class="rule"></div>
           <h2 class="ae-h">PROOF</h2>
           <p><code>verify-manual-proposal-request.sh</code>, <code>verify-speaker-distinction-fixture.sh</code>, full <code>./scripts/verify.sh</code>, and gated live Teams QA.</p>
@@ -68,7 +68,7 @@
         </article>
         <article class="cell">
           <h2 class="ae-h">SAFETY</h2>
-          <p>No transcript or chat text executes directly. Network/model workers remain opt-in until sandbox and egress proof pass.</p>
+          <p>No transcript or chat text executes directly. Approval queues the single OpenCode worker; no harness selector or fallback path.</p>
         </article>
         <article class="cell wash">
           <h2 class="ae-h">STOP IF</h2>
@@ -87,7 +87,7 @@
         </article>
         <article class="cell wash">
           <h2 class="ae-h">NOT IN FIRST CUT</h2>
-          <p>No default OMP/GLM/MCP worker, no auto-execution, no fake participant names, no raw transcript/audio persistence.</p>
+          <p>No OMP/GLM/MCP profile path, no auto-execution, no fake participant names, no raw transcript/audio persistence.</p>
         </article>
       </section>
 
@@ -141,7 +141,7 @@
                 <tr><td class="ae-item">direct chat agent</td><td>fast UX</td><td>bypasses approval invariant</td><td>reject</td></tr>
                 <tr><td class="ae-item">local diarization</td><td>local-first speaker buckets</td><td>not names; hard to grade</td><td>choose if fixture-gradeable</td></tr>
                 <tr><td class="ae-item">provider transcript</td><td>real names</td><td>app-specific auth/vendor path</td><td>defer</td></tr>
-                <tr><td class="ae-item">OMP/GLM default</td><td>real model worker</td><td>egress/tool exfil risk</td><td>gate separately</td></tr>
+                <tr><td class="ae-item">OpenCode default</td><td>real subagent worker</td><td>needs hardened receipts and sandbox</td><td>choose</td></tr>
               </tbody>
             </table>
           </div>

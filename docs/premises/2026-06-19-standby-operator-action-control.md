@@ -32,5 +32,6 @@ This evidence intentionally omits raw transcript text and raw audio paths.
 - The operator's "dozen people" count is accepted as live observation, not
   independently verified from attendee roster data.
 - Transcript accuracy and speaker identity remain unverified.
-- The current worker profile is `local-research`; model/tool/MCP worker support
-  is not yet accepted as safe default behavior.
+- The current implementation still contains superseded `local-research`/OMP
+  profile code. The accepted product direction is now the default OpenCode
+  subagent worker in `docs/decisions/0002-opencode-default-subagent-worker.md`.

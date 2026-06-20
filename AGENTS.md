@@ -17,7 +17,8 @@ event log.
   (ScreenCaptureKit + Apple Speech). It emits JSONL only — no SQLite, proposals,
   workers, or credentials. Keep product logic out of it.
 - External capture providers and model APIs are adapters behind the
-  `TranscriptSource` / `WorkerProfile` seams, not product core.
+  `TranscriptSource` / proposal-agent seams, not product core. Worker harness
+  selection is not a product setting.
 - Proposal cognition is a model boundary, not a phrase-list boundary. Keyword
   heuristics may exist only as explicit fallback, fixture, or safety guard paths;
   they are not the product brain for live action suggestions.
@@ -39,13 +40,19 @@ absent they report CAPTURE-BLOCKED, never hang.
 
 ## Worker safety
 
-- The default and only sandbox-accepted worker is the network-denied
-  `local-research` profile. Containment is OS-enforced (`sandbox-exec`): writes
-  only to the per-job scratch, no repo mutation, no network. `verify-worker-sandbox.sh`
-  must pass before any profile is accepted.
-- Cloud-model profiles (`claude-research`, `pi-research`) are opt-in only via
-  `STANDBY_ALLOW_NETWORK_WORKER=1`: a network-allowed worker can read local files,
-  so it can exfiltrate until egress is scoped. Never make one the default.
+- Product direction: approved work dispatches to OpenCode by default. OpenCode
+  is the only product subagent harness; no OMP fallback, no local-research
+  fallback, no `STANDBY_WORKER_PROFILE`, no `STANDBY_ALLOW_NETWORK_WORKER`, and
+  no worker-harness settings.
+- Approval is the deterministic product gate. The server still owns schema
+  validation, prompt redaction, event persistence, sandbox policy, receipt
+  recording, and visible failure states; the model/agent never approves itself.
+- Containment must be executable before this worker path is accepted: private
+  prompt/request files, isolated HOME/XDG dirs, constrained workspace access,
+  denied repo mutation, and receipts for every stdout/stderr/artifact/failure.
+- Current OMP/local worker profile code from backlog item 004 is superseded
+  legacy-to-delete. It may remain only as a temporary implementation gap or test
+  fixture while backlog item 009 is delivered; do not extend it.
 
 ## Red Lines
 

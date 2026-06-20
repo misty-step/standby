@@ -2,6 +2,14 @@
 
 Priority: P0 · Status: implemented · Estimate: L
 
+## Post-Delivery Direction Correction
+
+The security hardening in this ticket remains required: authenticated mutation
+routes, server-bound approval actor, prompt redaction, and visible failure
+receipts. The worker product shape changed afterward. Backlog item 009 removes
+the global network-worker flag and profile/consent selector UX in favor of one
+default OpenCode worker launched by deterministic approval.
+
 ## Goal
 Only an authenticated local operator can mutate meeting state or approve AI execution, and network/tool-capable workers require explicit per-job consent plus enforceable egress/secret boundaries.
 

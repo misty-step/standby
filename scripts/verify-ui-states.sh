@@ -18,8 +18,11 @@ cargo build -p standbyd >/dev/null
 DB="$(mktemp -t standby-ui.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-ui-jobs.XXXXXX)"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
-export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_ENABLE_SEED=1
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
+FAKE_BIN="$(mktemp -d -t standby-fake-opencode-bin.XXXXXX)"
+ln -s "$PWD/scripts/fixtures/fake-opencode.sh" "$FAKE_BIN/opencode"
+export PATH="$FAKE_BIN:$PATH"
 cargo run -p standbyd >/tmp/standby-ui.log 2>&1 &
 PID=$!
 cleanup() {
@@ -28,7 +31,7 @@ cleanup() {
   done
   rm -f "$DB" "$DB"-wal "$DB"-shm
   if [ -n "${DB2:-}" ]; then rm -f "$DB2" "$DB2"-wal "$DB2"-shm; fi
-  rm -rf "$JOBS"
+  rm -rf "$JOBS" "$FAKE_BIN"
   if [ -n "${JOBS2:-}" ]; then rm -rf "$JOBS2"; fi
 }
 trap cleanup EXIT
@@ -127,15 +130,14 @@ shot uitest-demo completed "&mode=demo"
 echo "  job completed with artifact"
 
 echo "5) a worker failure renders a receipt, not a spinner"
-# A second daemon whose local worker script does not exist, so an approved job
-# fails visibly (covers the worker-failed UI state the Oracle names).
+# A second daemon without opencode in PATH, so an approved job fails visibly
+# (covers the worker-failed UI state the Oracle names).
 DB2="$(mktemp -t standby-ui2.XXXXXX).db"
 JOBS2="$(mktemp -d -t standby-ui2-jobs.XXXXXX)"
 ADDR2="127.0.0.1:4325"
-STANDBY_DB="$DB2" STANDBY_ADDR="$ADDR2" STANDBY_JOBS_DIR="$JOBS2" STANDBY_ENABLE_SEED=1 \
-  STANDBY_WORKER_PROFILE=local-research STANDBY_LOCAL_WORKER_SCRIPT=/nonexistent/worker.sh \
+PATH="/usr/bin:/bin" STANDBY_DB="$DB2" STANDBY_ADDR="$ADDR2" STANDBY_JOBS_DIR="$JOBS2" STANDBY_ENABLE_SEED=1 \
   STANDBY_OPERATOR_TOKEN="$STANDBY_OPERATOR_TOKEN" \
-  cargo run -p standbyd >/tmp/standby-ui2.log 2>&1 &
+  target/debug/standbyd >/tmp/standby-ui2.log 2>&1 &
 PID2=$!
 for _ in $(seq 1 80); do curl -fsS "http://$ADDR2/health" >/dev/null 2>&1 && break; sleep 0.25; done
 WSEED="$(node -e 'process.stdout.write(JSON.stringify({events:process.argv.slice(1)}))' \

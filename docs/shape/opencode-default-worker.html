@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standby 009: Default OpenCode Worker</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    .plan .ae-bar,.plan .ae-stage{width:min(92rem,100% - 4rem)}
+    .hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(24rem,.78fr);gap:3rem;align-items:end}
+    .grid{display:grid;gap:1px;background:var(--ae-line)}
+    .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .cell{background:var(--ae-surface);padding:1.15rem 1.25rem;min-width:0}
+    .wash{background:var(--ae-wash)}
+    @media(max-width:900px){.plan .ae-bar,.plan .ae-stage{width:min(100% - 2rem,92rem)}.hero,.g2,.g3{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<div class="ae-screen plan">
+  <header class="ae-bar">
+    <a class="ae-name" href="../../backlog.d/009-default-opencode-subagent-worker.md">STANDBY / 009</a>
+    <p class="ae-chrome">default OpenCode subagent worker</p>
+  </header>
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero">
+        <div>
+          <p class="ae-chrome">WORK CONTRACT</p>
+          <h1 class="ae-strong">Approval queues one OpenCode worker. No profile menu. No fallback.</h1>
+          <p class="ae-lede">Replace the superseded local/OMP profile path with a single OpenCode runner. Rust keeps approval, schema validation, redaction, sandbox, event log, and receipts. OpenCode owns unsupervised agentic execution.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">QUALITY SYSTEM</h2>
+          <p><strong>Outcome:</strong> approve proposal, see OpenCode job start, then artifact or visible failure receipt.</p>
+          <p><strong>Standards:</strong> Rust product core, no worker setting, no fallback, transcript text remains evidence only.</p>
+          <p><strong>Proof:</strong> grep oracle, route replay, missing-binary/auth receipt, sandbox negative, full gate.</p>
+          <p><strong>Critic:</strong> diff + oracle review for public workflow and containment risk.</p>
+        </aside>
+      </section>
+
+      <section class="grid g3" style="margin-top:2rem">
+        <article class="cell">
+          <h2 class="ae-h">CLAIM</h2>
+          <p>Standby has one product worker substrate: OpenCode.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">FALSIFIER</h2>
+          <p>Profile selector, OMP/local fallback, hidden env opt-in, argv prompt leak, silent failure, or sandbox escape remains.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">STOP IF</h2>
+          <p>OpenCode cannot run headless from private files, cannot emit receipts, or requires user-home access outside isolated state.</p>
+        </article>
+      </section>
+
+      <section class="grid g2" style="margin-top:2rem">
+        <article class="cell">
+          <h2 class="ae-h">CHANGE SHAPE</h2>
+          <p>Delete WorkerProfile selection. Add one OpenCode worker boundary. Generate job request JSON and prompt files, isolated HOME/XDG dirs, OpenCode config, stdout/stderr/sandbox receipts.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">VERIFICATION</h2>
+          <p><code>scripts/verify-opencode-worker.sh</code> writes <code>docs/evidence/opencode-default-worker/</code>. <code>./scripts/verify.sh</code> includes the default worker proof.</p>
+        </article>
+      </section>
+    </article>
+  </main>
+</div>
+</body>
+</html>

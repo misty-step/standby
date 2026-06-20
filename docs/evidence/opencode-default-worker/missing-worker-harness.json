@@ -1,0 +1,16 @@
+{
+  "allow_network": true,
+  "allowed_tools": [
+    "opencode"
+  ],
+  "auth_env_keys": [
+    "OPENROUTER_API_KEY",
+    "ZAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENCODE_API_KEY"
+  ],
+  "harness": "opencode",
+  "isolated_home": true,
+  "program": "opencode"
+}

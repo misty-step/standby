@@ -48,8 +48,8 @@ of undifferentiated `call audio`.
 - Every proposal request, proposal, approval, job event, artifact, and failure is
   append-only in SQLite.
 - Normal live capture must continue while this feature is used.
-- OpenCode is the only product worker harness; `local-research` may exist only
-  as a test fixture while the replacement lands.
+- OpenCode is the only product worker harness; tests may fake the `opencode`
+  executable through `PATH`.
 - UI must make uncertainty visible: "Speaker 2" is acceptable; fake names are
   not.
 

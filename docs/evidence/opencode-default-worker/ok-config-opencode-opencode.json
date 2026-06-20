@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "edit": {
+      "*": "deny"
+    },
+    "external_directory": {
+      "/private/var/folders/jr/0kj0xfdd4s1ggs921sr2d7f80000gn/T/standby-opencode-ok-jobs.XXXXXX.s8JaubMGGu/job_18bad9ed3c159b50_101c7_9": "allow",
+      "/private/var/folders/jr/0kj0xfdd4s1ggs921sr2d7f80000gn/T/standby-opencode-ok-jobs.XXXXXX.s8JaubMGGu/job_18bad9ed3c159b50_101c7_9/**": "allow"
+    }
+  }
+}

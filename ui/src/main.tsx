@@ -647,7 +647,7 @@ function ProposalCard({
           <span><Sparkles size={16} /> {proposal.model.provider} · {proposal.model.model}</span>
         ) : null}
       </div>
-      <p className="model-note">Network/model workers require explicit per-job consent; default local execution runs network-denied.</p>
+      <p className="model-note">Approval queues the default OpenCode worker; failures surface with receipts.</p>
       {proposal.model?.reasoning_summary ? (
         <p className="model-note">{proposal.model.reasoning_summary}</p>
       ) : null}
@@ -1112,11 +1112,11 @@ function humanReason(reason: string): string {
 function failureLabel(reason: string | null): string {
   switch (reason) {
     case "cli_not_found":
-      return "Worker CLI not found";
+      return "OpenCode CLI not found";
     case "auth_required":
-      return "Worker CLI needs authentication";
+      return "OpenCode needs authentication";
     case "consent_required":
-      return "Network worker needs explicit per-job consent";
+      return "Worker approval required";
     case "timeout":
       return "Worker timed out";
     case "sandbox_violation":

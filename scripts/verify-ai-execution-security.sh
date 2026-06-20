@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Backlog 008 security proof: local mutation routes require an operator token,
-# browser mutations must be same-origin, approval identity is server-bound, and
-# network-capable worker dispatch requires per-job consent plus prompt redaction.
+# Backlog 008 security proof after 009: local mutation routes require an operator
+# token, browser mutations must be same-origin, approval identity is
+# server-bound, and approved execution goes through the default OpenCode worker
+# with prompt redaction and receipts.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -83,9 +84,12 @@ ADDR="127.0.0.1:4330"
 COOKIE="$(mktemp -t standby-sec-cookie.XXXXXX)"
 LOG="/tmp/standby-ai-execution-security.log"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
-export STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=local-research
+export STANDBY_ENABLE_SEED=1
 export STANDBY_OPERATOR_TOKEN="$TOKEN" STANDBY_OPERATOR_ACTOR="$ACTOR"
 export STANDBY_CAPTURE_HELPER=/nonexistent/standby-capture-helper
+FAKE_BIN="$(mktemp -d -t standby-fake-opencode-bin.XXXXXX)"
+ln -s "$PWD/scripts/fixtures/fake-opencode.sh" "$FAKE_BIN/opencode"
+export PATH="$FAKE_BIN:$PATH"
 
 cargo run -p standbyd >"$LOG" 2>&1 &
 PID=$!
@@ -93,7 +97,7 @@ cleanup() {
   kill "$PID" 2>/dev/null || true
   if [ -n "${PID2:-}" ]; then kill "$PID2" 2>/dev/null || true; fi
   rm -f "$DB" "$DB"-wal "$DB"-shm "$COOKIE"
-  rm -rf "$JOBS"
+  rm -rf "$JOBS" "$FAKE_BIN"
   if [ -n "${DB2:-}" ]; then rm -f "$DB2" "$DB2"-wal "$DB2"-shm; fi
   if [ -n "${JOBS2:-}" ]; then rm -rf "$JOBS2"; fi
   if [ -n "${COOKIE2:-}" ]; then rm -f "$COOKIE2"; fi
@@ -130,7 +134,7 @@ expect_status 403 "$EVIDENCE/hostile-origin-approve.json" \
   -X POST "http://$ADDR/api/proposals/$PROP/approve"
 
 curl -fsS -b "$COOKIE" -H "origin: http://$ADDR" -H 'content-type: application/json' \
-  -d '{"approved_by":"mallory","prompt":"Run the approved local research task."}' \
+  -d '{"approved_by":"mallory","prompt":"Run the approved OpenCode task without exposing sk-security-check or password=hunter2."}' \
   -X POST "http://$ADDR/api/proposals/$PROP/approve" >"$EVIDENCE/approval-response.json"
 
 ACTOR="$ACTOR" PROP="$PROP" node -e '
@@ -142,6 +146,7 @@ ACTOR="$ACTOR" PROP="$PROP" node -e '
     console.error("FAIL: approval actor spoofable", job.context.approved_by);
     process.exit(1)
   }
+  if(job.profile!=="opencode"){console.error("FAIL: approval should queue opencode, got", job.profile);process.exit(1)}
   if(job.status!=="queued"){console.error("FAIL: approval response should be queued, got", job.status);process.exit(1)}
 '
 
@@ -154,45 +159,20 @@ for _ in $(seq 1 160); do
   fi
   sleep 0.25
 done
-[ "$DONE" = 1 ] || { echo "local worker did not reach a terminal state"; cat "$EVIDENCE/final-local-projection.json"; exit 1; }
+[ "$DONE" = 1 ] || { echo "OpenCode worker did not reach a terminal state"; cat "$EVIDENCE/final-local-projection.json"; exit 1; }
 
-DB2="$(mktemp -t standby-sec-net.XXXXXX).db"
-JOBS2="$(mktemp -d -t standby-sec-net-jobs.XXXXXX)"
-ADDR2="127.0.0.1:4331"
-COOKIE2="$(mktemp -t standby-sec-net-cookie.XXXXXX)"
-LOG2="/tmp/standby-ai-execution-security-network.log"
-STANDBY_DB="$DB2" STANDBY_ADDR="$ADDR2" STANDBY_JOBS_DIR="$JOBS2" \
-  STANDBY_ENABLE_SEED=1 STANDBY_WORKER_PROFILE=claude-research \
-  STANDBY_ALLOW_NETWORK_WORKER=1 STANDBY_OPERATOR_TOKEN="$TOKEN" \
-  STANDBY_OPERATOR_ACTOR="$ACTOR" cargo run -p standbyd >"$LOG2" 2>&1 &
-PID2=$!
-wait_ready "$ADDR2" "$PID2" "$LOG2"
-
-curl -fsS -c "$COOKIE2" "http://$ADDR2/api/operator-session" >"$EVIDENCE/network-operator-session.json"
-seed_meeting "$ADDR2" "security" "$COOKIE2"
-create_proposal "$ADDR2" "$COOKIE2" "$EVIDENCE/network-proposal-response.json"
-NPROP="$(node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(!p.proposals.length) process.exit(2); process.stdout.write(p.proposals.at(-1).id)' "$EVIDENCE/network-proposal-response.json")"
-
-curl -fsS -b "$COOKIE2" -H "origin: http://$ADDR2" -H 'content-type: application/json' \
-  -d '{"approved_by":"mallory","prompt":"This network worker must not start without consent."}' \
-  -X POST "http://$ADDR2/api/proposals/$NPROP/approve" >"$EVIDENCE/network-no-consent-approval.json"
-
-NPROP="$NPROP" node -e '
+PROP="$PROP" node -e '
   const fs=require("fs");
-  const p=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE}/network-no-consent-approval.json`,"utf8"));
-  const job=p.jobs.find(j=>j.proposal_id===process.env.NPROP);
-  if(!job){console.error("FAIL: network approval did not record a job");process.exit(1)}
-  if(job.status!=="failed"){console.error("FAIL: network job without consent should fail before dispatch, got", job.status);process.exit(1)}
-  if(job.failure_reason!=="consent_required"){console.error("FAIL: expected consent_required, got", job.failure_reason);process.exit(1)}
-  if(p.events.some(e=>e.event_type==="agent_job.started" && e.payload_json.id===job.id)){
-    console.error("FAIL: network job started without consent");process.exit(1)
-  }
+  const p=JSON.parse(fs.readFileSync(`${process.env.EVIDENCE}/final-local-projection.json`,"utf8"));
+  const job=p.jobs.find(j=>j.proposal_id===process.env.PROP);
+  if(!job){console.error("FAIL: approved job missing");process.exit(1)}
+  if(job.profile!=="opencode"){console.error("FAIL: expected opencode worker", job.profile);process.exit(1)}
   if(p.events.some(e=>e.event_type==="agent_job.network_consent_granted" && e.payload_json.job_id===job.id)){
-    console.error("FAIL: consent event should not exist for denied job");process.exit(1)
+    console.error("FAIL: consent event should not exist for default OpenCode approval");process.exit(1)
   }
 '
 
-cargo test -p standby-core network_worker_prompt_is_redacted_after_consent -- --nocapture \
+cargo test -p standby-core opencode_worker_produces_artifact_from_private_files -- --nocapture \
   >"$EVIDENCE/redaction-test.txt"
 
 node -e '
@@ -200,7 +180,7 @@ node -e '
   fs.writeFileSync(`${process.env.EVIDENCE}/verdict.json`, JSON.stringify({
     status: "pass",
     checked_at: new Date().toISOString(),
-    claim: "AI execution is operator-authorized, origin-safe, consent-gated, and redacted before network dispatch.",
+    claim: "AI execution is operator-authorized, origin-safe, server-bound, and redacted before default OpenCode dispatch.",
     receipts: fs.readdirSync(process.env.EVIDENCE).sort()
   }, null, 2) + "\n");
 '

@@ -1,0 +1,1 @@
+Run approved OpenCode worker even when binary is absent.

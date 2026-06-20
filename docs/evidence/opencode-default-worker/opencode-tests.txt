@@ -1,0 +1,18 @@
+
+running 4 tests
+test worker::tests::opencode_profile_uses_isolated_private_file_transport ... ok
+test worker::tests::opencode_json_stdout_summarizes_text_parts ... ok
+test worker::tests::missing_opencode_binary_fails_visibly_with_receipt ... ok
+test worker::tests::opencode_worker_produces_artifact_from_private_files ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.25s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s

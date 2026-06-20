@@ -32,6 +32,6 @@ This evidence intentionally omits raw transcript text and raw audio paths.
 - The operator's "dozen people" count is accepted as live observation, not
   independently verified from attendee roster data.
 - Transcript accuracy and speaker identity remain unverified.
-- The current implementation still contains superseded `local-research`/OMP
-  profile code. The accepted product direction is now the default OpenCode
-  subagent worker in `docs/decisions/0002-opencode-default-subagent-worker.md`.
+- Superseded `local-research`/OMP product profile code has been replaced by the
+  default OpenCode subagent worker direction in
+  `docs/decisions/0002-opencode-default-subagent-worker.md`.

@@ -23,6 +23,8 @@ The OMP path is legacy-to-delete, not a compatibility target.
 - No worker-harness configuration: remove `STANDBY_WORKER_PROFILE`,
   `STANDBY_ALLOW_NETWORK_WORKER`, `STANDBY_OMP_MODEL`, and any UI/settings path
   that chooses a worker substrate.
+- The worker model is the product-pinned `openrouter/z-ai/glm-5.2`; no runtime
+  model setting exists in this slice.
 - Deterministic Rust code owns validation, policy, persistence, approval,
   sandbox setup, prompt redaction, event projection, and receipts.
 - OpenCode owns unsupervised agentic execution and may use dynamic subagents
@@ -56,8 +58,8 @@ receipts, policy, and trustworthy background execution.
 
 - Backlog item 004 remains useful only as history and a deletion map.
 - Backlog item 009 is the immediate implementation ticket.
-- `local-research` can remain only as a test fixture while 009 is in flight; it
-  must not be selected by product code.
+- `local-research` must not be selected by product code; verification may fake
+  the `opencode` executable through `PATH`.
 - Existing tests and scripts that prove OMP fallback behavior are legacy proofs
   and must be replaced by OpenCode-default proofs.
 - Security work from backlog item 008 still applies, but the UX simplification

@@ -8,16 +8,20 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
-    AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, LocalMacAudioSource,
-    Meeting, MeetingProjection, ProposalAgentRun, ProposalContextWindow, ProposalRequestEngine,
-    ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root, demo_meeting_segments,
-    emit_job_failed, event_types, propose_from_meeting_context, run_job, run_proposal_agent,
+    AgentJobSpec, CaptureMode, EventStore, HelperEvent, JobFailureReason, JobStatus,
+    LocalMacAudioSource, Meeting, MeetingProjection, ProposalAgentRun, ProposalContextWindow,
+    ProposalRequestEngine, ProposalStatus, WorkerProfile, approve_proposal, default_scratch_root,
+    demo_meeting_segments, emit_job_failed, event_types, propose_from_meeting_context, run_job,
+    run_proposal_agent,
 };
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -85,13 +89,15 @@ async fn main() -> Result<()> {
 
     let db_path = db_path();
     let (job_tx, job_rx) = mpsc::unbounded_channel::<QueuedJob>();
+    let store = Arc::new(Mutex::new(open_store(&db_path)?));
     let state = AppState {
-        store: Arc::new(Mutex::new(open_store(&db_path)?)),
+        store,
         auth: Arc::new(OperatorAuth::from_env()),
         captures: Arc::new(Mutex::new(HashMap::new())),
         job_tx,
     };
     spawn_worker_loop(db_path, job_rx);
+    recover_queued_jobs(&state)?;
 
     let app = api_router(state).fallback_service(ServeDir::new(ui_dist_path()));
     let addr: SocketAddr = std::env::var("STANDBY_ADDR")
@@ -507,6 +513,210 @@ fn scratch_root() -> PathBuf {
     }
 }
 
+fn recover_queued_jobs(state: &AppState) -> Result<()> {
+    let jobs = {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| anyhow::anyhow!("lock store for worker recovery"))?;
+        store.recoverable_jobs()?
+    };
+
+    let scratch_root = scratch_root();
+    for job in jobs {
+        let stale_worker_count = match terminate_stale_worker_for_job(&job, &scratch_root) {
+            Ok(count) => count,
+            Err(err) => {
+                let job = mark_job_recovered(job, 0);
+                let store = state
+                    .store
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("lock store for stale worker failure"))?;
+                emit_job_failed(
+                    &store,
+                    &job,
+                    JobFailureReason::Unknown,
+                    &format!("worker recovery could not terminate stale worker: {err}"),
+                )?;
+                continue;
+            }
+        };
+        let job = mark_job_recovered(job, stale_worker_count);
+        info!("recovering worker job {}", job.id);
+        if stale_worker_count > 0 {
+            info!(
+                job_id = job.id,
+                stale_worker_count, "terminated stale worker before recovery"
+            );
+        }
+        {
+            let store = state
+                .store
+                .lock()
+                .map_err(|_| anyhow::anyhow!("lock store for worker recovery progress"))?;
+            store.append(
+                &job.meeting_id,
+                event_types::JOB_PROGRESS,
+                job.proposal_id.as_deref(),
+                None,
+                &job,
+            )?;
+        }
+        if state.job_tx.send(QueuedJob { job: job.clone() }).is_err() {
+            let store = state
+                .store
+                .lock()
+                .map_err(|_| anyhow::anyhow!("lock store for worker recovery failure"))?;
+            emit_job_failed(
+                &store,
+                &job,
+                JobFailureReason::Unknown,
+                "worker queue unavailable during recovery",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn mark_job_recovered(mut job: AgentJobSpec, stale_worker_count: usize) -> AgentJobSpec {
+    job.status = JobStatus::Queued;
+    job.progress_note = Some(recovery_progress_note(stale_worker_count));
+    job.failure_reason = None;
+    job.error = None;
+    job.receipt_path = None;
+    job
+}
+
+fn recovery_progress_note(stale_worker_count: usize) -> String {
+    if stale_worker_count == 0 {
+        "recovered after daemon restart".to_string()
+    } else {
+        format!(
+            "recovered after daemon restart; terminated {stale_worker_count} stale worker{}",
+            if stale_worker_count == 1 { "" } else { "s" }
+        )
+    }
+}
+
+fn terminate_stale_worker_for_job(job: &AgentJobSpec, scratch_root: &FsPath) -> Result<usize> {
+    let job_dir = scratch_root.join(&job.id);
+    if !job_dir.exists() {
+        return Ok(0);
+    }
+    let job_dirs = job_dir_match_candidates(&job_dir);
+
+    let pids = stale_worker_pids_for_job(&job_dirs)?;
+    for pid in &pids {
+        terminate_process_if_still_matches(*pid, false, &job_dirs)?;
+    }
+    if !pids.is_empty() {
+        thread::sleep(Duration::from_millis(200));
+        for pid in stale_worker_pids_for_job(&job_dirs)? {
+            terminate_process_if_still_matches(pid, true, &job_dirs)?;
+        }
+        let survivors = stale_worker_pids_for_job(&job_dirs)?;
+        if !survivors.is_empty() {
+            anyhow::bail!("stale worker processes survived termination: {survivors:?}");
+        }
+    }
+    Ok(pids.len())
+}
+
+fn job_dir_match_candidates(job_dir: &FsPath) -> Vec<String> {
+    let mut candidates = vec![job_dir.display().to_string()];
+    if let Ok(canonical) = job_dir.canonicalize() {
+        let canonical = canonical.display().to_string();
+        if !candidates.iter().any(|candidate| candidate == &canonical) {
+            candidates.push(canonical);
+        }
+    }
+    candidates
+}
+
+fn stale_worker_pids_for_job(job_dirs: &[String]) -> Result<Vec<u32>> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .context("list worker processes")?;
+    if !output.status.success() {
+        anyhow::bail!("ps failed while listing worker processes");
+    }
+    Ok(parse_worker_pids_for_job(
+        &String::from_utf8_lossy(&output.stdout),
+        job_dirs,
+    ))
+}
+
+fn parse_worker_pids_for_job(ps_output: &str, job_dirs: &[String]) -> Vec<u32> {
+    ps_output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.trim_start().splitn(2, char::is_whitespace);
+            let pid = parts.next()?.parse::<u32>().ok()?;
+            let command = parts.next().unwrap_or_default();
+            let workerish = command.contains("sandbox-exec") || command.contains("opencode");
+            if pid != std::process::id()
+                && workerish
+                && command_references_job_dir(command, job_dirs)
+            {
+                Some(pid)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn command_references_job_dir(command: &str, job_dirs: &[String]) -> bool {
+    job_dirs
+        .iter()
+        .any(|job_dir| command_contains_path(command, job_dir))
+}
+
+fn command_contains_path(command: &str, path: &str) -> bool {
+    command.match_indices(path).any(|(start, _)| {
+        let bytes = command.as_bytes();
+        let end = start + path.len();
+        let before_ok = start == 0 || is_path_boundary(bytes[start - 1]);
+        let after_ok = end == bytes.len() || is_path_boundary(bytes[end]);
+        before_ok && after_ok
+    })
+}
+
+fn is_path_boundary(byte: u8) -> bool {
+    byte.is_ascii_whitespace() || matches!(byte, b'\'' | b'"' | b'=' | b':' | b',' | b'/' | b'\\')
+}
+
+fn pid_still_matches_worker(pid: u32, job_dirs: &[String]) -> Result<bool> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "pid=,command="])
+        .output()
+        .context("inspect worker process before signal")?;
+    if !output.status.success() {
+        return Ok(false);
+    }
+    Ok(
+        parse_worker_pids_for_job(&String::from_utf8_lossy(&output.stdout), job_dirs)
+            .contains(&pid),
+    )
+}
+
+fn terminate_process_if_still_matches(pid: u32, force: bool, job_dirs: &[String]) -> Result<()> {
+    if !pid_still_matches_worker(pid, job_dirs)? {
+        return Ok(());
+    }
+    let signal = if force { "-9" } else { "-TERM" };
+    let status = Command::new("kill")
+        .args([signal, &pid.to_string()])
+        .status()
+        .context("signal stale worker process")?;
+    if status.success() {
+        return Ok(());
+    }
+    tracing::warn!(pid, force, "stale worker process was already gone");
+    Ok(())
+}
+
 /// Drain queued jobs and run each out-of-request. Every job opens its own SQLite
 /// connection (WAL) so worker writes never block HTTP projection reads.
 fn spawn_worker_loop(db_path: PathBuf, mut job_rx: mpsc::UnboundedReceiver<QueuedJob>) {
@@ -612,5 +822,112 @@ impl IntoResponse for ApiError {
             })),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use standby_core::{DeliverableSpec, JobBudget, JobContext, PermissionProfile, WorkerKind};
+
+    fn job(status: JobStatus) -> AgentJobSpec {
+        AgentJobSpec {
+            id: "job_test".to_string(),
+            meeting_id: "meeting_test".to_string(),
+            proposal_id: Some("proposal_test".to_string()),
+            worker: WorkerKind::ResearchAgent,
+            title: "Research".to_string(),
+            prompt: "Do work".to_string(),
+            context: JobContext {
+                meeting_title: None,
+                topic: None,
+                approved_by: "tester".to_string(),
+                transcript_spans: vec![],
+                meeting_state_snapshot_id: None,
+            },
+            budget: JobBudget {
+                max_minutes: 1,
+                max_cost_usd: None,
+            },
+            deliverable: DeliverableSpec {
+                description: "test".to_string(),
+            },
+            permissions: PermissionProfile {
+                can_mutate_external_systems: false,
+                requires_extra_approval: vec![],
+            },
+            status,
+            profile: Some("opencode".to_string()),
+            progress_note: Some("old progress".to_string()),
+            failure_reason: Some(JobFailureReason::Unknown),
+            error: Some("old error".to_string()),
+            receipt_path: Some("/tmp/old/stdout.log".to_string()),
+        }
+    }
+
+    #[test]
+    fn mark_job_recovered_clears_stale_receipt_and_failure_state() {
+        let recovered = mark_job_recovered(job(JobStatus::Running), 0);
+
+        assert_eq!(recovered.status, JobStatus::Queued);
+        assert_eq!(
+            recovered.progress_note.as_deref(),
+            Some("recovered after daemon restart")
+        );
+        assert!(recovered.failure_reason.is_none());
+        assert!(recovered.error.is_none());
+        assert!(recovered.receipt_path.is_none());
+    }
+
+    #[test]
+    fn mark_job_recovered_records_stale_worker_cleanup() {
+        let recovered = mark_job_recovered(job(JobStatus::Running), 2);
+
+        assert_eq!(
+            recovered.progress_note.as_deref(),
+            Some("recovered after daemon restart; terminated 2 stale workers")
+        );
+    }
+
+    #[test]
+    fn parse_worker_pids_for_job_matches_worker_commands_for_job_dir_candidates() {
+        let job_dirs = vec![
+            "/tmp/standby/job_a".to_string(),
+            "/private/tmp/standby/job_a".to_string(),
+        ];
+        let ps_output = "\
+          123 sandbox-exec -f /tmp/standby/job_a/sandbox.sb opencode run --dir /tmp/standby/job_a
+          124 opencode run --dir /private/tmp/standby/job_a --file /private/tmp/standby/job_a/prompt.txt
+          456 opencode run --dir /tmp/standby/job_b
+          789 bash /tmp/standby/job_a/not-a-worker
+          abc opencode run --dir /tmp/standby/job_a
+        ";
+
+        assert_eq!(
+            parse_worker_pids_for_job(ps_output, &job_dirs),
+            vec![123, 124]
+        );
+    }
+
+    #[test]
+    fn command_references_job_dir_does_not_match_path_prefixes() {
+        let job_dirs = vec!["/tmp/standby/job_a".to_string()];
+
+        assert!(command_references_job_dir(
+            "opencode run --dir /tmp/standby/job_a --file /tmp/standby/job_a/prompt.txt",
+            &job_dirs
+        ));
+        assert!(command_references_job_dir(
+            "sandbox-exec -f /tmp/standby/job_a/sandbox.sb opencode run",
+            &job_dirs
+        ));
+        assert!(!command_references_job_dir(
+            "opencode run --dir /tmp/standby/job_ab",
+            &job_dirs
+        ));
+        assert!(!command_references_job_dir(
+            "opencode run --dir /prefix/tmp/standby/job_a",
+            &job_dirs
+        ));
     }
 }

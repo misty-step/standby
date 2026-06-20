@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worker Queue Recovery Plan</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    .ae-stage,.ae-bar{width:min(88rem,100% - 4rem)}.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(22em,.62fr);gap:2em;align-items:end}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--ae-line)}.cell{background:var(--ae-surface);padding:1.2em}.phase{display:grid;grid-template-columns:8em 1fr 18em;gap:1em;border-top:1px solid var(--ae-line);padding-top:1em;margin-top:1em}@media(max-width:900px){.hero,.grid,.phase{grid-template-columns:1fr}.ae-stage,.ae-bar{width:min(100% - 2rem,88rem)}}
+  </style>
+</head>
+<body>
+<div class="ae-screen">
+  <header class="ae-bar"><a class="ae-name" href="#">STANDBY / 006</a><p class="ae-chrome">worker queue recovery</p></header>
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero">
+        <div>
+          <p class="ae-chrome">PREMISE / <code>backlog.d/006-recover-worker-queue-after-daemon-restart.md</code></p>
+          <h1 class="ae-strong">Approved OpenCode jobs survive daemon restart.</h1>
+          <p class="ae-lede">Chosen design: replay the append-only event log on startup and enqueue any latest job state that is still queued or running. Do not add a second durable queue table until the event log stops being sufficient.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">QUALITY BAR</h2>
+          <p>One ledger owns truth. Approval path stays unchanged. Recovery uses the same worker loop as live approval. Completed, failed, and canceled jobs are never rerun.</p>
+        </aside>
+      </section>
+      <section class="grid" style="margin-top:2em">
+        <article class="cell"><h2 class="ae-h">ALTERNATIVES</h2><p>Queue table: rejected as duplicate truth. Manual retry: rejected as operator-hostile. Supervisor process: deferred as larger runtime shape.</p></article>
+        <article class="cell"><h2 class="ae-h">ORACLE</h2><p><code>scripts/verify-worker-recovery.sh</code> kills a daemon mid-job, restarts it, observes terminal job state, restarts again, and proves the completed job did not rerun.</p></article>
+        <article class="cell"><h2 class="ae-h">STOP IF</h2><p>Recovery requires changing approval semantics, adding mutable external worker actions, or replay cannot distinguish terminal jobs from active jobs.</p></article>
+      </section>
+      <section class="ae-panel" style="margin-top:2em">
+        <h2 class="ae-h">IMPLEMENTATION</h2>
+        <div class="phase"><strong>1 core</strong><p>Add `EventStore::recoverable_jobs()` over job events ordered by insertion.</p><p class="ae-dim">Unit tests cover queued/running returned and terminal skipped.</p></div>
+        <div class="phase"><strong>2 daemon</strong><p>After spawning the worker loop, enqueue recoverable jobs from the opened store.</p><p class="ae-dim">No new route or user setting.</p></div>
+        <div class="phase"><strong>3 proof</strong><p>Add fake OpenCode wait marker and restart smoke.</p><p class="ae-dim">Evidence packet under `docs/evidence/operator-action-control/worker-recovery/`.</p></div>
+        <div class="phase"><strong>4 gate</strong><p>Wire focused verifier into `./scripts/verify.sh` and hosted CI if fast enough.</p><p class="ae-dim">Run full gate, fresh critic, PR, hosted check, squash merge.</p></div>
+      </section>
+    </article>
+  </main>
+</div>
+</body>
+</html>

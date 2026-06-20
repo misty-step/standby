@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standby Backlog Delivery Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    :root { --ae-accent: #164f63; --ae-accent-dark: #76d6ee; }
+    .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(94rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(24em, 0.78fr); gap: 3em; align-items: end; }
+    .kicker { display: block; margin-bottom: 0.8em; }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1.5em 0; }
+    .grid-2, .grid-3, .grid-4 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.15em 1.3em; }
+    .wash { background: var(--ae-wash); }
+    .phase { display: grid; grid-template-columns: 9em minmax(0, 1fr) minmax(16em, 0.72fr); gap: 1.3em; border-top: 1px solid var(--ae-line); padding-top: 1em; margin-top: 1em; }
+    .phase:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .table-wrap { overflow-x: auto; }
+    .status { display: inline-flex; gap: 0.45em; align-items: baseline; }
+    .status svg { transform: translateY(0.15em); }
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(100% - 2rem, 94rem); }
+      .hero, .grid-2, .grid-3, .grid-4, .phase { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<svg aria-hidden="true" style="display: none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></symbol>
+</svg>
+
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="#">STANDBY / BACKLOG DELIVERY</a>
+    <p class="ae-chrome">master-sequenced execution contract</p>
+  </header>
+
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero" aria-label="Plan contract">
+        <div>
+          <p class="ae-chrome kicker">BACKLOG SOURCE / <code>backlog.d/*.md</code> on master after PR #3</p>
+          <h1 class="ae-strong">Deliver the remaining Standby backlog into a functional, clean, good-feeling local meeting command surface.</h1>
+          <p class="ae-lede">Chosen design: sequence trunk-safe tickets with their own proof loops. Stabilize worker recovery first, then speaker attribution, then add the missing visual/design-system ticket using shadcn-style primitives and browser QA. Every substantive ticket gets shape, research where facts can drift, alternatives, a focused verifier, fresh critique, full gate, hosted CI, and squash merge to master.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">CHOSEN DESIGN</h2>
+          <p><span class="status"><svg class="ae-icon ae-ok"><use href="#i-check"></use></svg> One branch per ticket, one oracle per branch, squash merge after green hosted gate.</span></p>
+          <div class="rule"></div>
+          <h2 class="ae-h">QUALITY SYSTEM</h2>
+          <p>Live oracle + structural gate + visual or agent evidence + fresh artifact-only critic.</p>
+          <p>Thermonuclear maintainability review is required for each substantive diff before merge.</p>
+          <div class="rule"></div>
+          <p class="ae-dim">Premise source: live repo backlog on 2026-06-20; PR #3 merged to master as <code>fcee488</code>.</p>
+          <p class="ae-dim">Plan status: authored as HTML; open locally before implementation.</p>
+        </aside>
+      </section>
+
+      <section class="grid-4" aria-label="Executive contract" style="margin-top: 2em">
+        <article class="cell"><h2 class="ae-h">STANDARDS</h2><p>Rust owns durable state and orchestration. React renders projection. Helper stays JSONL-only. Approval/sandbox gates stay deterministic. No fallback worker profile.</p></article>
+        <article class="cell"><h2 class="ae-h">ACCEPTANCE</h2><p>Backlog pending items are done or explicitly superseded; missing UX/design ticket is delivered; local and hosted gates are green; app has visual QA receipts.</p></article>
+        <article class="cell"><h2 class="ae-h">VERIFY</h2><p><code>./scripts/verify.sh</code>, focused ticket verifier, browser screenshot QA, real OpenCode smoke when worker path changes, fresh critic receipt.</p></article>
+        <article class="cell wash"><h2 class="ae-h">STOP IF</h2><p>Provider fact changes design, credentials are absent after local checks, UI work requires a full product rewrite, or a proof loop cannot be built cheaply.</p></article>
+      </section>
+
+      <section class="grid-3" aria-label="Current state" style="margin-top: 1px">
+        <article class="cell"><h2 class="ae-h">CURRENT STATE</h2><p>Pending: <code>005</code> live speaker attribution, <code>006</code> worker queue recovery. Done/implemented: proposal requests, observability, speaker-token preservation, AI-first proposals, approval security, OpenCode worker.</p></article>
+        <article class="cell"><h2 class="ae-h">BACKLOG GAP</h2><p>No ticket currently owns "looks and feels good" or shadcn-style UI primitives. Create one before visual implementation so design work has an oracle.</p></article>
+        <article class="cell wash"><h2 class="ae-h">PROOF SURFACE</h2><p>Existing verification is strong for Rust routes and worker behavior. UI proof exists but needs explicit visual regression / browser QA for design changes.</p></article>
+      </section>
+
+      <section class="ae-panel" aria-label="Execution phases" style="margin-top: 2em">
+        <h2 class="ae-h">EXECUTION PLAN</h2>
+        <div class="phase"><strong class="ae-accent">0 trunk</strong><p>Start from clean master. Merge 009, reconcile backlog statuses, create missing visual backlog ticket, write per-ticket context packets.</p><p class="ae-dim">Evidence: git status, backlog docs, this plan.</p></div>
+        <div class="phase"><strong class="ae-accent">1 recovery</strong><p>Deliver 006: event-log replay on daemon startup re-enqueues queued/running jobs and never reruns terminal jobs.</p><p class="ae-dim">Verifier: restart smoke with controllable slow/fake OpenCode worker; full gate; critic.</p></div>
+        <div class="phase"><strong class="ae-accent">2 speakers</strong><p>Refresh diarization/provider research, then deliver 005 as a provider-neutral attribution contract plus fixture adapter; only add cloud/local provider if credentials/runtime are available and gated.</p><p class="ae-dim">Verifier: stable multi-speaker fixture + UI render + gated live smoke when possible.</p></div>
+        <div class="phase"><strong class="ae-accent">3 design</strong><p>Deliver missing shadcn-style UI ticket. Prefer actual shadcn/Tailwind only if setup is smaller than bespoke polish; otherwise codify shadcn-like semantic primitives without dependency churn.</p><p class="ae-dim">Verifier: browser QA, desktop/mobile screenshots, console/network clean, UI state smoke.</p></div>
+        <div class="phase"><strong class="ae-accent">4 harden</strong><p>Thermonuclear refactor/review pass across touched surfaces; split obvious large modules only when it reduces coupling; strengthen CI if any verifier remains manual-only.</p><p class="ae-dim">Verifier: review receipts, <code>./scripts/verify.sh</code>, hosted gate, final clean tree.</p></div>
+      </section>
+
+      <section class="grid-2" aria-label="Alternatives and risks" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ALTERNATIVE DESIGNS</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>option</th><th>why it helps</th><th>tradeoff</th><th>verdict</th></tr></thead>
+              <tbody>
+                <tr><td class="ae-item">one giant branch</td><td>Max local momentum.</td><td>Hard review, hard rollback, mixed failures.</td><td>reject</td></tr>
+                <tr><td class="ae-item">ticket branches</td><td>Clean oracles, clean merges, CI isolates failures.</td><td>More PR overhead.</td><td>choose</td></tr>
+                <tr><td class="ae-item">design first</td><td>Improves feel quickly.</td><td>Could polish broken job/speaker behavior.</td><td>defer until recovery + attribution shape</td></tr>
+                <tr><td class="ae-item">provider-first diarization</td><td>Fast demo if API works.</td><td>Locks product to one vendor before contract.</td><td>reject as first step</td></tr>
+                <tr><td class="ae-item">contract-first diarization</td><td>Keeps Rust/event/UI stable across providers.</td><td>First slice may be fixture-backed.</td><td>choose</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">RISKS</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>risk</th><th>mitigation</th><th>owner</th></tr></thead>
+              <tbody>
+                <tr><td>Queue recovery reruns completed jobs.</td><td>Terminal-state replay test and restart smoke.</td><td>agent</td></tr>
+                <tr><td>Diarization becomes fake speaker names.</td><td>UI labels generic buckets unless provider identity is authenticated.</td><td>agent</td></tr>
+                <tr><td>shadcn setup bloats a small Vite app.</td><td>Preview CLI diff, choose smallest dependency surface that satisfies UI standards.</td><td>agent</td></tr>
+                <tr><td>Agent self-review misses architecture drift.</td><td>Fresh-context thermonuclear critic per ticket.</td><td>agent</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Review topology" style="margin-top: 2em">
+        <h2 class="ae-h">REVIEW TOPOLOGY</h2>
+        <div class="table-wrap">
+          <table class="ae-table">
+            <thead><tr><th>tier</th><th>why</th><th>critic lenses</th><th>waiver</th></tr></thead>
+            <tbody>
+              <tr><td class="ae-item">substantive</td><td>Shared state, worker lifecycle, UI, and model/provider contracts.</td><td>Correctness, security, thermonuclear maintainability, works critique, visual UX.</td><td>No waiver for worker/security/provider changes.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Ignore:</strong> cosmetic naming nits unless they hide a state, security, or workflow failure.</p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="ae-bar">
+    <p class="ae-foot">Generated for Standby backlog execution. Update this artifact when ticket order or proof systems change.</p>
+  </footer>
+</div>
+</body>
+</html>

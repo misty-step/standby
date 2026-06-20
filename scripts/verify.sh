@@ -45,5 +45,6 @@ VERIFY_EVIDENCE="$(mktemp -d -t standby-verify-evidence.XXXXXX)"
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/manual-proposal" bash ./scripts/verify-manual-proposal-request.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/ai-execution-security" bash ./scripts/verify-ai-execution-security.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/opencode-worker" bash ./scripts/verify-opencode-worker.sh
+STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/worker-recovery" bash ./scripts/verify-worker-recovery.sh
 
 echo "standby verification passed"

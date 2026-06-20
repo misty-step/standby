@@ -1,0 +1,17 @@
+{
+  "status": "pass",
+  "checked_at": "2026-06-20T23:06:59.483Z",
+  "claim": "queued/running OpenCode jobs are recovered after daemon restart and completed jobs are not re-run",
+  "proposal_id": "prop_18baeca2a8739a50_15215_6",
+  "job_id": "job_18baeca2acf64be0_15215_9",
+  "run_count": 2,
+  "recovery_event_id": "evt_18baeca2e075fb50_15310_1",
+  "receipts": [
+    "after-completed-restart-projection.json",
+    "after-restart-projection.json",
+    "approval-before-crash.json",
+    "before-crash-projection.json",
+    "demo.json",
+    "verdict.json"
+  ]
+}

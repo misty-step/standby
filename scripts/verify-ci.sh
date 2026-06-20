@@ -28,6 +28,7 @@ STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/opencode-worker" bash ./scripts/verify-openco
 CI_EVIDENCE="$(mktemp -d -t standby-ci-evidence.XXXXXX)"
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/manual-proposal" bash ./scripts/verify-manual-proposal-request.sh
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/speaker-distinction" bash ./scripts/verify-speaker-distinction-fixture.sh
+STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/worker-recovery" bash ./scripts/verify-worker-recovery.sh
 
 git diff --check
 if [ "${CI:-}" = "true" ]; then

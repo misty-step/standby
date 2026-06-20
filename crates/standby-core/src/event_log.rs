@@ -1,3 +1,4 @@
+use crate::JobStatus;
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
     MeetingEvent, MeetingProjection, NetworkWorkerConsent, NoProposal, Proposal, ProposalRequest,
@@ -278,6 +279,52 @@ impl EventStore {
         Ok(false)
     }
 
+    pub fn recoverable_jobs(&self) -> Result<Vec<AgentJobSpec>> {
+        let mut statement = self.connection.prepare(
+            "select event_type, payload_json
+             from meeting_events
+             where event_type in (
+                'agent_job.requested',
+                'agent_job.started',
+                'agent_job.progress',
+                'agent_job.completed',
+                'agent_job.failed',
+                'agent_job.canceled'
+             )
+             order by rowid asc",
+        )?;
+
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            let (event_type, payload_text) = row?;
+            match serde_json::from_str::<AgentJobSpec>(&payload_text) {
+                Ok(job)
+                    if is_terminal_job_event(&event_type)
+                        || is_terminal_job_status(&job.status) =>
+                {
+                    remove_by_id(&mut jobs, &job.id);
+                }
+                Ok(job) if matches!(job.status, JobStatus::Queued | JobStatus::Running) => {
+                    upsert_by_id(&mut jobs, job);
+                }
+                Ok(_) => {}
+                Err(_) if is_terminal_job_event(&event_type) => {
+                    if let Some(job_id) = job_id_from_payload(&payload_text) {
+                        remove_by_id(&mut jobs, &job_id);
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+        Ok(jobs
+            .into_iter()
+            .filter(|job| matches!(job.status, JobStatus::Queued | JobStatus::Running))
+            .collect())
+    }
+
     pub fn find_latest_proposal(&self, proposal_id: &str) -> Result<Option<Proposal>> {
         let mut statement = self.connection.prepare(
             "select payload_json
@@ -380,6 +427,35 @@ where
     }
 }
 
+fn remove_by_id<T>(items: &mut Vec<T>, id: &str)
+where
+    T: HasId,
+{
+    items.retain(|item| item.id() != id);
+}
+
+fn is_terminal_job_event(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        event_types::JOB_COMPLETED | event_types::JOB_FAILED | event_types::JOB_CANCELED
+    )
+}
+
+fn is_terminal_job_status(status: &JobStatus) -> bool {
+    matches!(
+        status,
+        JobStatus::Completed | JobStatus::Failed | JobStatus::Canceled
+    )
+}
+
+fn job_id_from_payload(payload_text: &str) -> Option<String> {
+    serde_json::from_str::<Value>(payload_text)
+        .ok()?
+        .get("id")?
+        .as_str()
+        .map(ToOwned::to_owned)
+}
+
 trait HasId {
     fn id(&self) -> &str;
 }
@@ -406,9 +482,10 @@ impl HasId for Artifact {
 mod tests {
     use super::*;
     use crate::{
-        AudioLane, AudioLevel, CaptureMode, ProposalKind, ProposalStatus, SourceFailed,
-        SourceFailureReason, SourceStarted, SourceStatus, SourceStopped, TranscriptSourceKind,
-        WorkerKind, demo_segments,
+        AudioLane, AudioLevel, CaptureMode, DeliverableSpec, JobBudget, JobContext,
+        PermissionProfile, ProposalKind, ProposalStatus, SourceFailed, SourceFailureReason,
+        SourceStarted, SourceStatus, SourceStopped, TranscriptSourceKind, WorkerKind,
+        demo_segments,
     };
 
     fn seg(
@@ -829,5 +906,179 @@ mod tests {
         let projection = store.projection("meeting_test").unwrap();
         assert_eq!(projection.proposals.len(), 1);
         assert_eq!(projection.proposals[0].status, ProposalStatus::Approved);
+    }
+
+    fn job(meeting: &str, id: &str, status: JobStatus) -> AgentJobSpec {
+        AgentJobSpec {
+            id: id.to_string(),
+            meeting_id: meeting.to_string(),
+            proposal_id: None,
+            worker: WorkerKind::ResearchAgent,
+            title: format!("{id} job"),
+            prompt: "recover me".to_string(),
+            context: JobContext {
+                meeting_title: None,
+                topic: None,
+                approved_by: "tester".to_string(),
+                transcript_spans: vec![],
+                meeting_state_snapshot_id: None,
+            },
+            budget: JobBudget {
+                max_minutes: 1,
+                max_cost_usd: None,
+            },
+            deliverable: DeliverableSpec {
+                description: "test".to_string(),
+            },
+            permissions: PermissionProfile {
+                can_mutate_external_systems: false,
+                requires_extra_approval: vec![],
+            },
+            status,
+            profile: Some("opencode".to_string()),
+            progress_note: None,
+            failure_reason: None,
+            error: None,
+            receipt_path: None,
+        }
+    }
+
+    #[test]
+    fn recoverable_jobs_returns_latest_nonterminal_jobs_only() {
+        let store = EventStore::memory().unwrap();
+        let mut queued = job("m_a", "job_queued", JobStatus::Queued);
+        let mut running = job("m_b", "job_running", JobStatus::Queued);
+        let mut completed = job("m_c", "job_completed", JobStatus::Queued);
+        let mut failed = job("m_d", "job_failed", JobStatus::Queued);
+
+        store
+            .append("m_a", event_types::JOB_REQUESTED, None, None, &queued)
+            .unwrap();
+        store
+            .append("m_b", event_types::JOB_REQUESTED, None, None, &running)
+            .unwrap();
+        running.status = JobStatus::Running;
+        store
+            .append("m_b", event_types::JOB_STARTED, None, None, &running)
+            .unwrap();
+        store
+            .append("m_c", event_types::JOB_REQUESTED, None, None, &completed)
+            .unwrap();
+        completed.status = JobStatus::Completed;
+        store
+            .append("m_c", event_types::JOB_COMPLETED, None, None, &completed)
+            .unwrap();
+        store
+            .append("m_d", event_types::JOB_REQUESTED, None, None, &failed)
+            .unwrap();
+        failed.status = JobStatus::Failed;
+        store
+            .append("m_d", event_types::JOB_FAILED, None, None, &failed)
+            .unwrap();
+
+        queued.progress_note = Some("still queued".to_string());
+        store
+            .append("m_a", event_types::JOB_PROGRESS, None, None, &queued)
+            .unwrap();
+
+        let recoverable = store.recoverable_jobs().unwrap();
+        let ids = recoverable
+            .iter()
+            .map(|job| job.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["job_queued", "job_running"]);
+        assert_eq!(
+            recoverable[0].progress_note.as_deref(),
+            Some("still queued")
+        );
+        assert_eq!(recoverable[1].status, JobStatus::Running);
+    }
+
+    #[test]
+    fn recoverable_jobs_excludes_canceled_jobs() {
+        let store = EventStore::memory().unwrap();
+        let mut canceled = job("m_a", "job_canceled", JobStatus::Queued);
+
+        store
+            .append("m_a", event_types::JOB_REQUESTED, None, None, &canceled)
+            .unwrap();
+        canceled.status = JobStatus::Canceled;
+        store
+            .append("m_a", event_types::JOB_CANCELED, None, None, &canceled)
+            .unwrap();
+
+        assert!(store.recoverable_jobs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn projection_exposes_recovery_progress_event_payload() {
+        let store = EventStore::memory().unwrap();
+        let mut recovered = job("m_a", "job_recovered", JobStatus::Queued);
+        recovered.progress_note = Some("recovered after daemon restart".to_string());
+
+        store
+            .append("m_a", event_types::JOB_PROGRESS, None, None, &recovered)
+            .unwrap();
+
+        let projection = store.projection("m_a").unwrap();
+        let event = projection
+            .events
+            .iter()
+            .find(|event| event.event_type == event_types::JOB_PROGRESS)
+            .unwrap();
+
+        assert_eq!(event.payload_json["id"], "job_recovered");
+        assert_eq!(
+            event.payload_json["progress_note"],
+            "recovered after daemon restart"
+        );
+        assert_eq!(
+            projection.jobs[0].progress_note.as_deref(),
+            Some("recovered after daemon restart")
+        );
+    }
+
+    #[test]
+    fn recoverable_jobs_skips_malformed_historical_job_events() {
+        let store = EventStore::memory().unwrap();
+        let queued = job("m_a", "job_queued", JobStatus::Queued);
+
+        store
+            .append(
+                "m_bad",
+                event_types::JOB_REQUESTED,
+                None,
+                None,
+                &serde_json::json!({"not": "a job"}),
+            )
+            .unwrap();
+        store
+            .append("m_a", event_types::JOB_REQUESTED, None, None, &queued)
+            .unwrap();
+
+        let recoverable = store.recoverable_jobs().unwrap();
+        assert_eq!(recoverable.len(), 1);
+        assert_eq!(recoverable[0].id, "job_queued");
+    }
+
+    #[test]
+    fn recoverable_jobs_does_not_rerun_job_with_malformed_terminal_event() {
+        let store = EventStore::memory().unwrap();
+        let queued = job("m_a", "job_queued", JobStatus::Queued);
+
+        store
+            .append("m_a", event_types::JOB_REQUESTED, None, None, &queued)
+            .unwrap();
+        store
+            .append(
+                "m_a",
+                event_types::JOB_COMPLETED,
+                None,
+                None,
+                &serde_json::json!({"id": "job_queued", "status": "completed"}),
+            )
+            .unwrap();
+
+        assert!(store.recoverable_jobs().unwrap().is_empty());
     }
 }

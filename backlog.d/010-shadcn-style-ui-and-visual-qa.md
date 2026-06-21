@@ -1,6 +1,6 @@
 # Shadcn-style UI polish and visual QA
 
-Priority: P1 · Status: pending · Estimate: L
+Priority: P1 · Status: done · Estimate: L
 
 ## Goal
 
@@ -39,15 +39,15 @@ composition and semantic design tokens where they fit the current Vite app.
 
 ## Oracle
 
-- [ ] A browser QA script or Playwright walk captures desktop and mobile
+- [x] A browser QA script or Playwright walk captures desktop and mobile
   screenshots for idle, demo/proposal, running job, completed artifact, and
   failure states.
-- [ ] Console/network checks are clean during the scripted walk.
-- [ ] The UI build passes and `scripts/verify-ui-states.sh` remains green or is
+- [x] Console/network checks are clean during the scripted walk.
+- [x] The UI build passes and `scripts/verify-ui-states.sh` remains green or is
   replaced by a stronger visual verifier.
-- [ ] A fresh visual/UX critic finds no blocking hierarchy, layout, or workflow
+- [x] A fresh visual/UX critic finds no blocking hierarchy, layout, or workflow
   issue.
-- [ ] `./scripts/verify.sh` passes after the UI changes.
+- [x] `./scripts/verify.sh` passes after the UI changes.
 
 ## Verification System
 
@@ -72,3 +72,20 @@ composition and semantic design tokens where they fit the current Vite app.
 3. Prefer fewer, deeper UI primitives over many one-off class blocks.
 4. Keep the app surface operational, not marketing-like.
 5. Add or strengthen visual QA before broad UI rewrite work.
+
+## Implementation Receipt
+
+- Researched current shadcn CLI docs and ran `npx shadcn@latest info`: the app
+  is Vite/TS but has no Tailwind, import aliases, or `components.json`.
+- Chose local shadcn-style semantic primitives over full Tailwind/shadcn init to
+  avoid a second styling stack for a single-screen Vite app.
+- Added real mobile Meeting/Notes/Jobs/Audio navigation, made transcript search
+  functional, removed the inert top-right settings icon, and surfaced Proposal /
+  Worker / Result state in first-viewport status tiles.
+- Added `scripts/capture-ui-state.mjs` plus `scripts/verify-ui-visual-qa.sh` to
+  capture desktop and mobile screenshots, DOM, console, and network reports for
+  idle, proposal, notes, audio, running, completed, jobs, and failed states.
+- Fresh critics found no blocking visual issue. Follow-up fixes moved the Ask
+  Standby form out of the open-proposal state, compacted mobile status tiles,
+  and made Chrome discovery portable instead of macOS-path-only.
+- Evidence: `docs/evidence/ui-visual-qa/`.

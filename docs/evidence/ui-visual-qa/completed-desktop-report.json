@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "url": "http://127.0.0.1:4330/?meeting=qa-running",
+  "viewport": {
+    "width": 1280,
+    "height": 880,
+    "mode": "desktop"
+  },
+  "screenshot": "completed-desktop.png",
+  "dom": "completed-desktop.html",
+  "consoleErrors": [],
+  "networkErrors": [],
+  "pageErrors": []
+}

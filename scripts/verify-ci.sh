@@ -30,6 +30,7 @@ STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/manual-proposal" bash ./scripts/verify-manual
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/speaker-distinction" bash ./scripts/verify-speaker-distinction-fixture.sh
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/worker-recovery" bash ./scripts/verify-worker-recovery.sh
 STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/live-speaker-attribution" bash ./scripts/verify-live-speaker-attribution.sh
+STANDBY_EVIDENCE_DIR="$CI_EVIDENCE/ui-visual-qa" bash ./scripts/verify-ui-visual-qa.sh
 
 git diff --check
 if [ "${CI:-}" = "true" ]; then

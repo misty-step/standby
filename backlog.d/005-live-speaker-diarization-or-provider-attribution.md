@@ -1,6 +1,6 @@
 # Add live speaker diarization or provider attribution
 
-Priority: P1 · Status: implemented · Estimate: L
+Priority: P1 · Status: done · Estimate: L
 
 ## Goal
 Give live multi-person calls stable remote speaker buckets or participant names instead of relying on transcript sources to provide `remote_1` / `remote_2` tokens.

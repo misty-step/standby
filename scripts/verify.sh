@@ -47,5 +47,6 @@ STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/ai-execution-security" bash ./scripts/ver
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/opencode-worker" bash ./scripts/verify-opencode-worker.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/worker-recovery" bash ./scripts/verify-worker-recovery.sh
 STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/live-speaker-attribution" bash ./scripts/verify-live-speaker-attribution.sh
+STANDBY_EVIDENCE_DIR="$VERIFY_EVIDENCE/ui-visual-qa" bash ./scripts/verify-ui-visual-qa.sh
 
 echo "standby verification passed"

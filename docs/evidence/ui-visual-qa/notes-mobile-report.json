@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "url": "http://127.0.0.1:4330/?meeting=qa-proposal&section=notes",
+  "viewport": {
+    "width": 390,
+    "height": 920,
+    "mode": "mobile"
+  },
+  "screenshot": "notes-mobile.png",
+  "dom": "notes-mobile.html",
+  "consoleErrors": [],
+  "networkErrors": [],
+  "pageErrors": []
+}

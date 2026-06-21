@@ -6,9 +6,9 @@ Priority: P0 · Status: done · Estimate: M
 Let the meeting operator explicitly ask Standby to propose work from a message plus recent transcript context, without weakening the approval-before-execution invariant.
 
 ## Oracle
-- [ ] `scripts/verify-manual-proposal-request.sh` seeds a meeting, posts an Ask Standby message, observes `proposal_request.created` plus evidence-cited `proposal.created`, approves one card, and sees a terminal worker result or receipt.
-- [ ] The normal transcript-triggered proposal flow still works.
-- [ ] No worker starts until the approval endpoint is called.
+- [x] `scripts/verify-manual-proposal-request.sh` seeds a meeting, posts an Ask Standby message, observes `proposal_request.created` plus evidence-cited `proposal.created`, approves one card, and sees a terminal worker result or receipt.
+- [x] The normal transcript-triggered proposal flow still works.
+- [x] No worker starts until the approval endpoint is called.
 
 ## Verification System
 - Claim: an operator can force a useful proposal card during a live call and then approve it through the existing worker path.

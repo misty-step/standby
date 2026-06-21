@@ -4,17 +4,14 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   FileText,
   Mic2,
   MicOff,
   PlayCircle,
   Search,
-  Settings,
   Sparkles,
   Square,
-  Users,
   Volume2,
   VolumeX,
   XCircle,
@@ -33,7 +30,7 @@ type SourceStatus =
   | "failed"
   | "stopped";
 
-type Section = "meeting" | "notes" | "jobs" | "settings";
+type Section = "meeting" | "notes" | "jobs" | "audio";
 
 type TranscriptSegment = {
   id: string;
@@ -136,6 +133,7 @@ const params = new URLSearchParams(window.location.search);
 const meetingId = params.get("meeting") ?? "live";
 const mode = params.get("mode") ?? "live";
 const isDemo = mode === "demo";
+const initialSection = readInitialSection(params.get("section"));
 
 const STATUS_LABEL: Record<SourceStatus, { label: string; tone: string }> = {
   idle: { label: "Idle", tone: "idle" },
@@ -199,7 +197,8 @@ function App() {
   const [projection, setProjection] = useState<MeetingProjection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [activeSection, setActiveSection] = useState<Section>("meeting");
+  const [activeSection, setActiveSection] = useState<Section>(initialSection);
+  const [transcriptQuery, setTranscriptQuery] = useState("");
 
   async function refresh() {
     const response = await fetch(`/api/meetings/${meetingId}`);
@@ -246,7 +245,7 @@ function App() {
     <div className="app-shell">
       <Sidebar
         status={status}
-        title={projection?.title ?? null}
+        title={projection?.title ?? (isDemo ? "Demo meeting" : "Live meeting")}
         activeSection={activeSection}
         onSectionChange={setActiveSection}
         proposalCount={proposalCount}
@@ -255,12 +254,20 @@ function App() {
       <main className="workspace">
         <TopBar status={status} title={projection?.title ?? (isDemo ? "Demo meeting" : "Live meeting")} />
         <SourceBanner status={status} source={source ?? null} />
+        <MobileSectionTabs
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          proposalCount={proposalCount}
+          jobCount={jobCount}
+        />
         <section className="content-grid">
           <section className="transcript-panel">
             <CaptureControls
               isDemo={isDemo}
               capturing={capturing}
               busy={busy}
+              transcriptQuery={transcriptQuery}
+              onTranscriptQueryChange={setTranscriptQuery}
               onStart={() => act(() => post(`/api/meetings/${meetingId}/capture/start?mode=mic%2Bsystem`))}
               onStop={() => act(() => post(`/api/meetings/${meetingId}/capture/stop`))}
               onDemo={() => act(() => post(`/api/meetings/${meetingId}/demo`))}
@@ -270,6 +277,7 @@ function App() {
               segments={projection?.transcript ?? []}
               partial={projection?.partial ?? null}
               status={status}
+              query={transcriptQuery}
             />
           </section>
           <WorkPanel
@@ -316,6 +324,11 @@ async function requestProposal(message: string): Promise<MeetingProjection> {
   return response.json();
 }
 
+function readInitialSection(value: string | null): Section {
+  if (value === "notes" || value === "jobs" || value === "audio") return value;
+  return "meeting";
+}
+
 function Sidebar({
   status,
   title,
@@ -335,7 +348,7 @@ function Sidebar({
     { id: "meeting", Icon: Mic2, label: "Meeting", count: proposalCount },
     { id: "notes", Icon: FileText, label: "Notes", count: 0 },
     { id: "jobs", Icon: Bot, label: "Jobs", count: jobCount },
-    { id: "settings", Icon: Settings, label: "Settings", count: 0 },
+    { id: "audio", Icon: Volume2, label: "Audio", count: 0 },
   ] satisfies Array<{ id: Section; Icon: typeof Mic2; label: string; count: number }>;
   const tone = STATUS_LABEL[status].tone;
   return (
@@ -383,10 +396,40 @@ function TopBar({ status, title }: { status: SourceStatus; title: string }) {
         <span className="divider" />
         <span>{title}</span>
       </div>
-      <div className="status-cluster right">
-        <Settings size={18} />
-      </div>
     </header>
+  );
+}
+
+function MobileSectionTabs({
+  activeSection,
+  onSectionChange,
+  proposalCount,
+  jobCount,
+}: {
+  activeSection: Section;
+  onSectionChange: (section: Section) => void;
+  proposalCount: number;
+  jobCount: number;
+}) {
+  const navItems = [
+    { id: "meeting", label: "Meeting", count: proposalCount },
+    { id: "notes", label: "Notes", count: 0 },
+    { id: "jobs", label: "Jobs", count: jobCount },
+    { id: "audio", label: "Audio", count: 0 },
+  ] satisfies Array<{ id: Section; label: string; count: number }>;
+  return (
+    <nav className="mobile-section-tabs" aria-label="Meeting views">
+      {navItems.map(({ id, label, count }) => (
+        <button
+          key={id}
+          className={activeSection === id ? "active" : ""}
+          onClick={() => onSectionChange(id)}
+        >
+          <span>{label}</span>
+          {count > 0 ? <small>{count}</small> : null}
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -509,6 +552,8 @@ function CaptureControls({
   isDemo,
   capturing,
   busy,
+  transcriptQuery,
+  onTranscriptQueryChange,
   onStart,
   onStop,
   onDemo,
@@ -516,6 +561,8 @@ function CaptureControls({
   isDemo: boolean;
   capturing: boolean;
   busy: boolean;
+  transcriptQuery: string;
+  onTranscriptQueryChange: (query: string) => void;
   onStart: () => void;
   onStop: () => void;
   onDemo: () => void;
@@ -542,7 +589,11 @@ function CaptureControls({
       )}
       <label className="search-field compact">
         <Search size={16} />
-        <input placeholder="Search transcript" />
+        <input
+          value={transcriptQuery}
+          onChange={(event) => onTranscriptQueryChange(event.target.value)}
+          placeholder="Search transcript"
+        />
       </label>
     </div>
   );
@@ -552,17 +603,31 @@ function TranscriptList({
   segments,
   partial,
   status,
+  query,
 }: {
   segments: TranscriptSegment[];
   partial: TranscriptSegment | null;
   status: SourceStatus;
+  query: string;
 }) {
   const empty = segments.length === 0 && !partial;
-  const newestFirst = useMemo(() => [...segments].reverse(), [segments]);
+  const trimmedQuery = query.trim().toLowerCase();
+  const newestFirst = useMemo(() => {
+    const ordered = [...segments].reverse();
+    if (!trimmedQuery) return ordered;
+    return ordered.filter((segment) => transcriptMatches(segment, trimmedQuery));
+  }, [segments, trimmedQuery]);
+  const partialVisible = partial && (!trimmedQuery || transcriptMatches(partial, trimmedQuery));
   return (
     <div className="transcript-list latest-first" aria-live="polite">
       {empty ? <TranscriptEmpty status={status} /> : null}
-      {partial ? (
+      {!empty && trimmedQuery && newestFirst.length === 0 && !partialVisible ? (
+        <div className="empty-state">
+          <strong>No matching transcript</strong>
+          <p>Clear the search to return to the live transcript.</p>
+        </div>
+      ) : null}
+      {partialVisible ? (
         <article className="transcript-row partial">
           <span className={`avatar ${speakerTone(partial.speaker)}`}>{speakerInitials(partial.speaker)}</span>
           <div>
@@ -577,6 +642,10 @@ function TranscriptList({
       ))}
     </div>
   );
+}
+
+function transcriptMatches(segment: TranscriptSegment, query: string): boolean {
+  return `${speakerLabel(segment.speaker)} ${segment.text}`.toLowerCase().includes(query);
 }
 
 function TranscriptEmpty({ status }: { status: SourceStatus }) {
@@ -776,11 +845,18 @@ function WorkPanel({
       <PanelHeader section={section} jobs={jobs.length} proposals={activeProposals.length} />
       {section === "meeting" ? (
         <>
-          <AskStandbyBox
-            disabled={busy}
-            transcriptCount={transcript.length}
-            onRequestProposal={onRequestProposal}
+          <WorkOverview
+            activeProposals={activeProposals}
+            latestJob={latestJob}
+            latestArtifact={latestArtifact}
+            latestNoProposal={latestNoProposal}
           />
+          {latestJob || latestArtifact ? (
+            <div className="current-work-stack">
+              {latestJob ? <JobCard job={latestJob} /> : null}
+              {latestArtifact ? <ResultCard artifact={latestArtifact} /> : null}
+            </div>
+          ) : null}
           {activeProposals.length > 0 ? (
             <div className="proposal-stack">
               {activeProposals.map((proposal) => (
@@ -793,16 +869,91 @@ function WorkPanel({
               ))}
             </div>
           ) : (
-            <EmptyProposal status={status} latestNoProposal={latestNoProposal} />
+            <>
+              <AskStandbyBox
+                disabled={busy}
+                transcriptCount={transcript.length}
+                onRequestProposal={onRequestProposal}
+              />
+              <EmptyProposal status={status} latestNoProposal={latestNoProposal} />
+            </>
           )}
-          {latestJob ? <JobCard job={latestJob} /> : null}
-          {latestArtifact ? <ResultCard artifact={latestArtifact} /> : null}
         </>
       ) : null}
       {section === "notes" ? <NotesPanel segments={transcript} /> : null}
       {section === "jobs" ? <JobsPanel jobs={jobs} artifacts={artifacts} /> : null}
-      {section === "settings" ? <AudioPanel status={status} source={source} /> : null}
+      {section === "audio" ? <AudioPanel status={status} source={source} /> : null}
     </aside>
+  );
+}
+
+function WorkOverview({
+  activeProposals,
+  latestJob,
+  latestArtifact,
+  latestNoProposal,
+}: {
+  activeProposals: Proposal[];
+  latestJob: AgentJobSpec | null;
+  latestArtifact: Artifact | null;
+  latestNoProposal: NoProposal | null;
+}) {
+  const proposalValue = activeProposals.length > 0 ? `${activeProposals.length} open` : latestNoProposal ? "No card" : "Clear";
+  const proposalDetail =
+    activeProposals.length > 0
+      ? activeProposals[0].title
+      : latestNoProposal
+      ? humanReason(latestNoProposal.reason)
+      : "No pending approval";
+  return (
+    <section className="work-overview" aria-label="Current meeting work">
+      <StatusTile
+        label="Proposal"
+        value={proposalValue}
+        detail={proposalDetail}
+        tone={activeProposals.length > 0 ? "attention" : "neutral"}
+        Icon={Sparkles}
+      />
+      <StatusTile
+        label="Worker"
+        value={latestJob ? JOB_LABEL[latestJob.status] : "Idle"}
+        detail={latestJob?.title ?? "No job queued"}
+        tone={latestJob ? jobTone(latestJob.status) : "neutral"}
+        Icon={Bot}
+      />
+      <StatusTile
+        label="Result"
+        value={latestArtifact ? "Ready" : "None"}
+        detail={latestArtifact?.title ?? "No artifact yet"}
+        tone={latestArtifact ? "ok" : "neutral"}
+        Icon={CheckCircle2}
+      />
+    </section>
+  );
+}
+
+function StatusTile({
+  label,
+  value,
+  detail,
+  tone,
+  Icon,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "neutral" | "attention" | "live" | "ok" | "error";
+  Icon: typeof Bot;
+}) {
+  return (
+    <article className={`status-tile ${tone}`}>
+      <div>
+        <Icon size={15} />
+        <span>{label}</span>
+      </div>
+      <strong>{value}</strong>
+      <p>{detail}</p>
+    </article>
   );
 }
 
@@ -828,7 +979,7 @@ function PanelHeader({
       title: "Agent jobs",
       body: jobs > 0 ? `${jobs} worker job${jobs === 1 ? "" : "s"} recorded for this meeting.` : "Approved tasks appear here.",
     },
-    settings: {
+    audio: {
       title: "Audio",
       body: "Capture lanes and permission state for this Mac.",
     },
@@ -883,7 +1034,7 @@ function JobsPanel({ jobs, artifacts }: { jobs: AgentJobSpec[]; artifacts: Artif
 
 function AudioPanel({ status, source }: { status: SourceStatus; source: SourceState | null }) {
   if (!source) {
-    return <EmptyWork icon={Settings} title="No capture source" body="Start capture to inspect microphone and call-audio lanes." />;
+    return <EmptyWork icon={Volume2} title="No capture source" body="Start capture to inspect microphone and call-audio lanes." />;
   }
   return (
     <div className="audio-panel">
@@ -976,13 +1127,13 @@ function sectionLabel(section: Section): string {
       return "Notes";
     case "jobs":
       return "Agent jobs";
-    case "settings":
-      return "Audio settings";
+    case "audio":
+      return "Audio";
   }
 }
 
 function JobCard({ job }: { job: AgentJobSpec }) {
-  const tone = job.status === "completed" ? "ok" : job.status === "failed" ? "error" : "live";
+  const tone = jobTone(job.status);
   const progressIndex = jobProgressIndex(job.status);
   return (
     <article className={`job-card ${tone}`}>
@@ -1009,6 +1160,10 @@ function JobCard({ job }: { job: AgentJobSpec }) {
       ) : null}
     </article>
   );
+}
+
+function jobTone(status: JobStatus): "live" | "ok" | "error" {
+  return status === "completed" ? "ok" : status === "failed" || status === "canceled" ? "error" : "live";
 }
 
 function jobProgressIndex(status: JobStatus): number {

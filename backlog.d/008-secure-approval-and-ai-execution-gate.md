@@ -1,6 +1,6 @@
 # Secure approval and AI execution before network-capable workers
 
-Priority: P0 · Status: implemented · Estimate: L
+Priority: P0 · Status: done · Estimate: L
 
 ## Post-Delivery Direction Correction
 

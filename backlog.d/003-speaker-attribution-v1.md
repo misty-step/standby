@@ -6,9 +6,9 @@ Priority: P1 · Status: done · Estimate: M
 Ensure Standby preserves and renders multiple remote speaker tokens when a transcript source provides them, instead of collapsing all call audio into `system_audio`.
 
 ## Oracle
-- [ ] `scripts/verify-speaker-distinction-fixture.sh` replays a multi-speaker fixture and fails if all remote speakers collapse to `system_audio`.
-- [ ] UI renders stable labels such as `Speaker 1` and `Speaker 2` for generic remote speaker keys.
-- [ ] Proposal evidence retains the speaker key that produced each cited span.
+- [x] `scripts/verify-speaker-distinction-fixture.sh` replays a multi-speaker fixture and fails if all remote speakers collapse to `system_audio`.
+- [x] UI renders stable labels such as `Speaker 1` and `Speaker 2` for generic remote speaker keys.
+- [x] Proposal evidence retains the speaker key that produced each cited span.
 
 ## Verification System
 - Claim: speaker distinction is materially better whenever the source provides stable speaker tokens.

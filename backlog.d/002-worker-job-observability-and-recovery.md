@@ -6,9 +6,9 @@ Priority: P1 · Status: done · Estimate: M
 Make every approved worker job visibly move through queued, running, progress, and terminal states, including receipts for failures and no silent queue loss.
 
 ## Oracle
-- [ ] `scripts/verify-worker-runner.sh` proves approval returns out-of-request, a worker starts, and the projection reaches completed with artifact or failed with receipt.
-- [ ] A missing worker script produces a visible `agent_job.failed`, not a spinner.
-- [ ] Dispatch queue send failure records a terminal event.
+- [x] `scripts/verify-worker-runner.sh` proves approval returns out-of-request, a worker starts, and the projection reaches completed with artifact or failed with receipt.
+- [x] A missing worker script produces a visible `agent_job.failed`, not a spinner.
+- [x] Dispatch queue send failure records a terminal event.
 
 ## Verification System
 - Claim: after approval, the operator can tell whether the worker is queued, running, done, or failed.

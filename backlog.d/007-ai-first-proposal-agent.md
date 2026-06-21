@@ -1,6 +1,6 @@
 # Replace heuristic proposal detection with a model-native proposal agent
 
-Priority: P0 · Status: implemented · Estimate: L
+Priority: P0 · Status: done · Estimate: L
 
 ## Goal
 Standby proposes and force-generates useful meeting action cards through a model-native proposal agent, with deterministic approval and worker policy still owned by the server.

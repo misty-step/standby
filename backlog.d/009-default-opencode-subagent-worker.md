@@ -1,6 +1,6 @@
 # Default OpenCode subagent worker
 
-Priority: P0 · Status: implemented · Estimate: L
+Priority: P0 · Status: done · Estimate: L
 
 ## Goal
 

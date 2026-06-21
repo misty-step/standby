@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standby 010 · UI polish plan</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --ink: #111827;
+        --muted: #667085;
+        --line: #d9dde5;
+        --accent: #1f67f2;
+        --success: #10935c;
+        --warn: #b45309;
+        --danger: #dc2626;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); }
+      main { max-width: 1180px; margin: 0 auto; padding: 32px; }
+      h1 { font-size: 34px; line-height: 1; margin: 0 0 10px; letter-spacing: 0; }
+      h2 { font-size: 18px; margin: 0 0 12px; }
+      p { color: var(--muted); line-height: 1.45; margin: 0; }
+      .hero { display: grid; grid-template-columns: 1.35fr .9fr; gap: 18px; align-items: stretch; margin-bottom: 18px; }
+      .panel, table { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+      .panel { padding: 18px; }
+      .tag { display: inline-block; border: 1px solid #b9ccf6; color: #0b4fce; background: #eef4ff; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 700; margin-bottom: 14px; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+      table { width: 100%; border-collapse: collapse; overflow: hidden; margin-top: 14px; }
+      th, td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+      tr:last-child td { border-bottom: 0; }
+      th { background: #f2f5fa; font-size: 12px; text-transform: uppercase; color: #475467; }
+      .steps { display: grid; gap: 10px; }
+      .step { border-left: 3px solid var(--accent); padding: 8px 0 8px 12px; }
+      .warning { border-color: #f4caa0; background: #fff7ed; }
+      code { background: #eef0f3; border-radius: 4px; padding: 2px 5px; }
+      @media (max-width: 850px) { main { padding: 18px; } .hero, .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="panel">
+          <span class="tag">Backlog 010</span>
+          <h1>Operational UI polish with shadcn-style primitives</h1>
+          <p>Make Standby usable in the first working viewport: transcript on the left, current proposal/job/result on the right, honest audio status above, and meaningful side navigation.</p>
+        </div>
+        <div class="panel warning">
+          <h2>Dependency decision</h2>
+          <p><code>npx shadcn@latest info</code> detects Vite/TS but no Tailwind, aliases, or <code>components.json</code>. Full shadcn init would add Tailwind and component plumbing to a tiny existing CSS app, so v1 uses local semantic primitives patterned after shadcn.</p>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel"><h2>Outcome</h2><p>Dense, calm meeting console. Running work and receipts are visible without hunting below a long proposal card.</p></div>
+        <div class="panel"><h2>Proof</h2><p>Browser-driven desktop and mobile screenshots for idle, proposal, running/completed, failed, notes, jobs, and audio views.</p></div>
+        <div class="panel"><h2>Stop Rule</h2><p>No text overlap, no dead nav, no console/network errors, and <code>./scripts/verify.sh</code> remains green.</p></div>
+      </section>
+
+      <table>
+        <thead><tr><th>Option</th><th>Benefit</th><th>Cost</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>Full shadcn/Tailwind init</td><td>Registry components and future consistency.</td><td>Adds Tailwind, aliases, config, and generated files before the product needs them.</td><td>Defer.</td></tr>
+          <tr><td>Local semantic primitives</td><td>Matches current app, low churn, still uses shadcn composition ideas.</td><td>No registry import path yet.</td><td>Choose.</td></tr>
+          <tr><td>CSS-only cleanup</td><td>Fastest.</td><td>Does not fix component hierarchy or nav/workflow issues.</td><td>Insufficient.</td></tr>
+        </tbody>
+      </table>
+
+      <section class="panel" style="margin-top:14px">
+        <h2>Execution Shape</h2>
+        <div class="steps">
+          <div class="step"><strong>Layout.</strong> Use stable shell/view primitives and a first-viewport status rail for current job/result state.</div>
+          <div class="step"><strong>Navigation.</strong> Keep sidenav only because Meeting, Notes, Jobs, and Audio panels now expose real state.</div>
+          <div class="step"><strong>Audio.</strong> Make mic/system lane state and permission failures explicit; no ambiguous "live" copy.</div>
+          <div class="step"><strong>Verification.</strong> Replace the older real-meeting screenshot set with a dedicated <code>docs/evidence/ui-visual-qa/</code> packet and DOM assertions.</div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

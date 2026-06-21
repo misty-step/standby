@@ -1,6 +1,6 @@
 # Recover queued worker jobs after daemon restart
 
-Priority: P1 · Status: implemented · Estimate: M
+Priority: P1 · Status: done · Estimate: M
 
 ## Goal
 Re-enqueue jobs that were requested but never reached a terminal event when `standbyd` restarts.

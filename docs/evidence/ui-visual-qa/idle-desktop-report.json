@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "url": "http://127.0.0.1:4330/?meeting=qa-idle",
+  "viewport": {
+    "width": 1280,
+    "height": 880,
+    "mode": "desktop"
+  },
+  "screenshot": "idle-desktop.png",
+  "dom": "idle-desktop.html",
+  "consoleErrors": [],
+  "networkErrors": [],
+  "pageErrors": []
+}

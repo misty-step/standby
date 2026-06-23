@@ -26,6 +26,12 @@ pub enum ProposalKind {
     Question,
 }
 
+/// The worker a proposal *suggests*. This is the model's vocabulary:
+/// `suggested_worker` is deserialized from model output (see the proposal schema
+/// enum in `engine.rs`), so every variant is load-bearing for parsing even
+/// though the product always dispatches the single OpenCode harness regardless
+/// of the suggestion. Advisory metadata, not a dispatch switch — do not prune
+/// the non-ResearchAgent variants without also narrowing the model schema.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerKind {
@@ -57,7 +63,6 @@ pub enum ProposalContextWindow {
 pub enum JobStatus {
     Queued,
     Running,
-    NeedsInput,
     Completed,
     Failed,
     Canceled,
@@ -151,6 +156,9 @@ pub enum SourceFailureReason {
 pub enum JobFailureReason {
     CliNotFound,
     AuthRequired,
+    /// Retired OMP-era reason: no longer produced, but kept so ledger events
+    /// written before the OMP worker was removed (commit fcee488) still decode.
+    /// Persisted enum tags are forever — see WorkerKind for the same constraint.
     ConsentRequired,
     Timeout,
     NonzeroExit,
@@ -347,7 +355,6 @@ pub struct JobContext {
     pub topic: Option<String>,
     pub approved_by: String,
     pub transcript_spans: Vec<String>,
-    pub meeting_state_snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -389,14 +396,6 @@ pub struct AgentJobSpec {
     /// Path to the on-disk receipt (stdout/stderr/exit) under the job scratch.
     #[serde(default)]
     pub receipt_path: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct NetworkWorkerConsent {
-    pub job_id: String,
-    pub profile: String,
-    pub approved_by: String,
-    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -479,7 +478,6 @@ pub mod event_types {
     pub const PROPOSAL_APPROVED: &str = "proposal.approved";
     pub const PROPOSAL_IGNORED: &str = "proposal.ignored";
     pub const JOB_REQUESTED: &str = "agent_job.requested";
-    pub const JOB_NETWORK_CONSENT_GRANTED: &str = "agent_job.network_consent_granted";
     pub const JOB_STARTED: &str = "agent_job.started";
     pub const JOB_PROGRESS: &str = "agent_job.progress";
     pub const JOB_COMPLETED: &str = "agent_job.completed";

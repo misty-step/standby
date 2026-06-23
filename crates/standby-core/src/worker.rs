@@ -114,7 +114,6 @@ pub fn build_job_spec(
                 .iter()
                 .map(|evidence| evidence.segment_id.clone())
                 .collect(),
-            meeting_state_snapshot_id: None,
         },
         budget: JobBudget {
             max_minutes: 5,

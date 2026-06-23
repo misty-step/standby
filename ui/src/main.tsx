@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-type JobStatus = "queued" | "running" | "needs_input" | "completed" | "failed" | "canceled";
+type JobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 type SourceStatus =
   | "idle"
   | "demo"
@@ -164,9 +164,7 @@ const FAILURE_TEXT: Record<string, string> = {
 
 const JOB_LABEL: Record<JobStatus, string> = {
   queued: "Queued",
-  running: "Running",
-  needs_input: "Needs input",
-  completed: "Completed",
+  running: "Running",  completed: "Completed",
   failed: "Failed",
   canceled: "Canceled",
 };
@@ -1187,7 +1185,6 @@ function jobProgressIndex(status: JobStatus): number {
     case "queued":
       return 0;
     case "running":
-    case "needs_input":
     case "failed":
     case "canceled":
       return 1;
@@ -1202,8 +1199,6 @@ function jobDefaultProgress(status: JobStatus): string {
       return "Waiting for a worker slot.";
     case "running":
       return "Worker is executing.";
-    case "needs_input":
-      return "Worker needs input before it can continue.";
     case "completed":
       return "Worker completed.";
     case "failed":

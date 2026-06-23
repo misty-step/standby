@@ -66,7 +66,6 @@ fn queued_job(meeting: &str) -> AgentJobSpec {
             topic: None,
             approved_by: "tester".to_string(),
             transcript_spans: vec![],
-            meeting_state_snapshot_id: None,
         },
         budget: JobBudget {
             max_minutes: 1,

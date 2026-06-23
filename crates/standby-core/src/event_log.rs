@@ -1,7 +1,7 @@
 use crate::JobStatus;
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
-    MeetingEvent, MeetingProjection, NetworkWorkerConsent, NoProposal, Proposal, ProposalRequest,
+    MeetingEvent, MeetingProjection, NoProposal, Proposal, ProposalRequest,
     SourceFailed, SourceFailure, SourceStarted, SourceState, SourceStatus, SourceStopped,
     TranscriptSegment,
     TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
@@ -324,19 +324,6 @@ impl EventStore {
         Ok(count > 0)
     }
 
-    pub fn has_network_worker_consent(&self, meeting_id: &str, job_id: &str) -> Result<bool> {
-        for event in self.list_events(meeting_id)? {
-            if event.event_type != event_types::JOB_NETWORK_CONSENT_GRANTED {
-                continue;
-            }
-            let consent: NetworkWorkerConsent = decode(&event.payload_json)?;
-            if consent.job_id == job_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     pub fn recoverable_jobs(&self) -> Result<Vec<AgentJobSpec>> {
         let mut statement = self.connection.prepare(
             "select event_type, payload_json
@@ -416,13 +403,7 @@ impl EventStore {
                 created_at text not null
             );
             create index if not exists meeting_events_meeting_idx
-                on meeting_events (meeting_id, created_at);
-            create table if not exists projections (
-                name text primary key,
-                version integer not null,
-                state_json text not null,
-                updated_at text not null
-            );",
+                on meeting_events (meeting_id, created_at);",
         )?;
         Ok(())
     }
@@ -967,6 +948,15 @@ mod tests {
     }
 
     #[test]
+    fn legacy_consent_required_failure_reason_still_decodes() {
+        // An OMP-era ledger can carry agent_job.failed with this retired reason;
+        // deleting the variant would make projection() fail to load that meeting.
+        let reason: crate::JobFailureReason =
+            serde_json::from_str("\"consent_required\"").unwrap();
+        assert_eq!(reason, crate::JobFailureReason::ConsentRequired);
+    }
+
+    #[test]
     fn meeting_ids_lists_distinct_meetings() {
         let store = EventStore::memory().unwrap();
         for m in ["a", "b", "a"] {
@@ -1180,9 +1170,7 @@ mod tests {
                 meeting_title: None,
                 topic: None,
                 approved_by: "tester".to_string(),
-                transcript_spans: vec![],
-                meeting_state_snapshot_id: None,
-            },
+                transcript_spans: vec![],            },
             budget: JobBudget {
                 max_minutes: 1,
                 max_cost_usd: None,

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Packet — Proposal-Quality Eval Harness (011)</title>
+<style>
+  :root{
+    --ink:#14181f; --muted:#5a6473; --line:#dfe4ea; --bg:#fbfcfd; --card:#fff;
+    --accent:#2f6f4f; --warn:#9a5b00; --bad:#9a2f2f; --good:#1f7a4d; --code:#0f172a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:30px;line-height:1.15;margin:0 0 4px}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:16px;margin:20px 0 6px;color:var(--accent);letter-spacing:.01em;text-transform:uppercase;font-weight:700}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:14px}
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 26px;box-shadow:0 1px 0 rgba(20,24,31,.03)}
+  .hero .lead{font-size:18px;margin:0 0 16px}
+  .grid{display:grid;grid-template-columns:148px 1fr;gap:8px 18px}
+  .grid dt{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.02em;padding-top:2px}
+  .grid dd{margin:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#f1f4f7;font-size:13px;text-transform:uppercase;letter-spacing:.02em;color:#374151}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef1f4;padding:1px 5px;border-radius:5px}
+  pre{background:var(--code);color:#e6edf3;padding:14px 16px;border-radius:10px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid}
+  .p0{color:var(--bad);border-color:#e3b7b7;background:#fbeeee}
+  .keep{color:var(--good);border-color:#bfe0cc;background:#eef8f1}
+  .rej{color:var(--bad);border-color:#e3b7b7;background:#fbeeee}
+  .callout{border-left:4px solid var(--accent);background:#f3f8f5;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .warn{border-left-color:var(--warn);background:#fcf6ec}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+  .lane{counter-reset:step;list-style:none;padding-left:0}
+  .lane li{position:relative;padding:10px 0 10px 44px;border-top:1px solid var(--line)}
+  .lane li:before{counter-increment:step;content:counter(step);position:absolute;left:0;top:10px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .muted{color:var(--muted)}
+  .anchor{font:12.5px/1.5 ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Context Packet — Proposal-Quality Eval Harness</h1>
+  <p class="sub">Ticket <code>backlog.d/011-proposal-quality-eval-harness.md</code> · <span class="pill p0">P0 · keystone</span> · Deliverable: <strong>code + eval report</strong> · Shaped 2026-06-22</p>
+
+  <section class="hero">
+    <p class="lead"><strong>Target outcome:</strong> turn the AI-first proposal bet from <em>asserted</em> into a <em>measured, gated number</em> — replace "a card was produced" with precision / recall / false-proposal-rate over a held-out, labeled transcript corpus, with a deterministic CI anchor and a confidence-bounded live measurement.</p>
+    <dl class="grid">
+      <dt>Chosen design</dt><dd>A labeled corpus drives <code>ProposalAgent::propose()</code> directly. <strong>Deterministic decision metrics</strong> (propose-vs-silent, kind, gold-evidence overlap) — no LLM-judge in v1. CI replays per-case <em>recorded real-model responses</em> (a regression anchor); a gated live run re-scores the real model K times and reports a bootstrap CI.</dd>
+      <dt>Why it wins</dt><dd>The decision metric <em>is</em> the bet ("asks → cards, chatter → silence"). It's deterministic, cheap, secret-free in CI, and reuses the existing <code>STANDBY_PROPOSAL_FIXTURE</code> replay path — minimal new machinery. The judge layer that adds noise/cost is deferred.</dd>
+      <dt>Proof surface</dt><dd><code>scripts/verify-proposal-eval.sh</code> (CI anchor) + <code>scripts/verify-live-proposal-eval.sh</code> (gated) → JSON report in <code>docs/evidence/ai-first-proposals/eval/</code>.</dd>
+      <dt>Stop conditions</dt><dd>(1) First live run can't clear a sane bar → <strong>surface it as a finding</strong> (the bet is weaker than assumed); do not fudge the bar. (2) Deterministic metrics depend on a judge to be meaningful → stop, the labels are wrong. (3) Corpus needs &gt;1 live capture pass to stabilize → stop and reconsider determinism.</dd>
+    </dl>
+  </section>
+
+  <h2>Goal · Non-Goals · Constraints</h2>
+  <h3>Goal</h3>
+  <p>Measure whether Standby's model-native proposals are useful and low-noise — and gate regressions — over a held-out labeled corpus, so the keyword-engine deletion (AGENTS.md:68) is justified by evidence rather than assertion.</p>
+  <h3>Non-Goals</h3>
+  <ul>
+    <li><strong>No LLM-judge faithfulness/usefulness scoring in v1.</strong> Deferred to a child (text-quality beyond span overlap). Adds nondeterminism, cost, and its own noise floor; not needed to falsify the bet.</li>
+    <li><strong>Do not rebuild the model boundary.</strong> The schema, confidence floor (0.55), and evidence-citation rejection (engine.rs:641-676) are strong — measure them, don't touch them.</li>
+    <li>No realtime/audio provider (that's 011's downstream, tracked separately).</li>
+    <li>No change to the live proposal cadence/debounce (touch only if the corpus needs windowing helpers).</li>
+  </ul>
+  <h3>Constraints / invariants that must survive</h3>
+  <ul>
+    <li>Rust owns policy: the eval drives <code>propose()</code> and scores its real output — it must not bypass validation or score raw model JSON.</li>
+    <li>No keyword heuristics reintroduced (the <code>verify-model-proposals.sh</code> symbol grep stays green).</li>
+    <li>The existing <code>STANDBY_PROPOSAL_FIXTURE</code> replay path and <code>fixture_replay.rs</code> tests keep working unchanged.</li>
+    <li>No secrets or raw transcripts leak into checked-in eval reports — redact like <code>verify-live-model-proposal.sh</code> already does.</li>
+  </ul>
+
+  <h2>Premise challenge &amp; alternatives</h2>
+  <p>The request ("build an eval harness") survives challenge — but the <em>scope</em> is where shaping earns its keep. The failure mode to avoid is over-building a judge before the cheap deterministic signal is even in place.</p>
+  <table>
+    <thead><tr><th>Option</th><th>How it fails</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Deterministic decision metrics + gated live measurement</strong> (chosen)</td><td>Span-overlap is a proxy for faithfulness, not a full judge of text quality. Accepted: it directly measures the bet and defers the expensive part.</td><td><span class="pill keep">Choose</span></td></tr>
+      <tr><td>LLM-judge from day one (judge every proposal for usefulness/faithfulness)</td><td>Nondeterministic, costs a model call per case per run, needs its own measured noise floor before it can gate. Premature — the decision metric already falsifies the bet.</td><td><span class="pill rej">Defer to child</span></td></tr>
+      <tr><td>Add a few negative fixtures to the existing recorded-fixture test, assert silence</td><td>The recorded <em>stub</em> (engine.rs:551) always emits when ≥2 segments — so it can't stay silent on a negative without being replaced by recorded real responses anyway. Tests the stub, not the model.</td><td><span class="pill rej">Reject (subset, insufficient)</span></td></tr>
+      <tr><td>Boring/manual: eyeball a few transcripts each release</td><td>No regression gate, no number, doesn't survive a context handoff — exactly the gap that let 007 ship "done" unmeasured.</td><td><span class="pill rej">Reject</span></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Design</h2>
+
+  <h3>Corpus</h3>
+  <p>≥30 labeled cases under <code>crates/standby-core/tests/fixtures/eval/</code>: a <code>corpus.json</code> manifest of cases, each:</p>
+  <pre>{
+  "id": "ask_paraphrased_research_01",
+  "category": "ask | negation | chatter | ambiguous | operator_request",
+  "transcript": [ { "id":"seg_..","speaker":"remote_1","text":"..","is_final":true,"start_ms":..,"end_ms":.. } ],
+  "operator_message": null,                 // set for Ask-Standby cases
+  "label": {
+    "should_propose": true,
+    "expected_kind": "research",            // null when should_propose=false
+    "gold_evidence_ids": ["seg_.."]         // [] when should_propose=false
+  },
+  "recorded_response": "responses/ask_paraphrased_research_01.json"  // captured real-model output, for the CI anchor
+}</pre>
+  <p><strong>Seed</strong> transcripts from real captures in <code>docs/evidence/real-meeting/</code>. <strong>Composition must include false-positive bait</strong> — the <code>negation</code> ("we should <em>not</em> pursue X") and <code>chatter</code> (small talk, status noise) categories with <code>should_propose:false</code> are the cases the synthetic stub fails and the ones that prove low-noise. Target a rough 60/40 positive/negative split so false-proposal-rate is well-estimated.</p>
+
+  <h3>Grader — deterministic, decision-level (v1)</h3>
+  <p>After running each case through <code>propose()</code>, compare the <code>ProposalAgentDecision</code> to the label:</p>
+  <table>
+    <thead><tr><th>Metric</th><th>Definition</th><th>Catches</th></tr></thead>
+    <tbody>
+      <tr><td>False-proposal rate</td><td>proposed when <code>should_propose=false</code>, over all negative cases</td><td>noise — the headline anti-metric; the stub fails here</td></tr>
+      <tr><td>Recall</td><td>TP / (TP+FN) over positive cases</td><td>missed genuine asks</td></tr>
+      <tr><td>Precision / F1</td><td>TP / (TP+FP); harmonic mean</td><td>overall decision quality</td></tr>
+      <tr><td>Kind accuracy</td><td>on TPs, <code>proposal.kind == expected_kind</code></td><td>wrong action type</td></tr>
+      <tr><td>Evidence overlap</td><td>on TPs, |cited ∩ gold| / |gold| (recall@gold)</td><td>cited the wrong span — stronger than today's "id exists" check (engine.rs:641-676)</td></tr>
+    </tbody>
+  </table>
+  <p>All deterministic given the model's output. No judge. The judge (faithfulness/usefulness of <em>text</em>) is a named child, out of v1.</p>
+
+  <h3>What runs where</h3>
+  <table>
+    <thead><tr><th>Lane</th><th>Provider</th><th>Determinism</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CI anchor</strong> — <code>tests/proposal_eval.rs</code> via <code>scripts/verify-proposal-eval.sh</code></td><td><code>Recorded{fixture}</code> replaying per-case captured responses (<code>STANDBY_PROPOSAL_FIXTURE</code> path, engine.rs:258)</td><td>Exact (no network)</td><td>Wired into <code>verify.sh</code> + <code>verify-ci.sh</code>. Asserts metrics ≥ captured baseline.</td></tr>
+      <tr><td><strong>Live measurement</strong> — <code>scripts/verify-live-proposal-eval.sh</code></td><td><code>OpenAi</code> over the corpus, K=5 repetitions</td><td>Noisy → bootstrap CI</td><td>Gated <code>STANDBY_LIVE_MODEL=1</code>+<code>OPENAI_API_KEY</code>. Pass bar on <em>lower CI bound</em>. Writes redacted JSON report.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout warn"><strong>Noise floor (CLAUDE.md doctrine):</strong> the live lane runs the model K times over the corpus; each metric gets a distribution; report the bootstrap CI (resample cases) and require the <em>lower bound</em> to clear the bar — a point estimate inside the noise floor is not a result. The CI anchor is exact (deterministic replay), so it asserts golden metrics directly and guards the Rust pipeline (floor, evidence rejection, dedupe, pre-gates).</div>
+
+  <h3>Build sequence — verification system first</h3>
+  <ol class="lane">
+    <li><strong>Corpus skeleton + harness before any claim.</strong> Author ~10 cases across all categories and the <code>proposal_eval.rs</code> runner that drives <code>propose()</code> and emits the metric table. This is the loop; it exists before the result.</li>
+    <li><strong>Fill the corpus to ≥30</strong>, seeded from <code>docs/evidence/real-meeting/</code>, weighted to include negation + chatter bait.</li>
+    <li><strong>One live capture pass</strong> (<code>STANDBY_LIVE_MODEL=1</code>): run the real model over the corpus, capture per-case responses → check in as <code>recorded_response</code> anchors, and record live metrics + bootstrap CI as the baseline + provisional bars.</li>
+    <li><strong>Wire both gates.</strong> CI anchor into <code>verify.sh</code>/<code>verify-ci.sh</code> (assert ≥ baseline); gated live script writes the redacted report. Extend the README verification table.</li>
+  </ol>
+
+  <h3>Pass bar / regression budget</h3>
+  <p><strong>Provisional</strong> (the first live run, step 3, calibrates these — and a failure to clear them is a finding, not a tuning exercise): false-proposal-rate ≤ 0.10 (upper CI), recall ≥ 0.80 (lower CI), kind-accuracy ≥ 0.80, evidence-overlap ≥ 0.5. CI anchor: metrics must not regress below the captured baseline.</p>
+
+  <h2>Oracle — executable definition of done</h2>
+  <ul>
+    <li><code>./scripts/verify-proposal-eval.sh</code> exits 0: runs the corpus through the recorded anchor, prints precision/recall/F1/false-rate/kind/evidence-overlap, and fails if any drops below the captured baseline.</li>
+    <li>A deliberately corrupted case (swap a positive's transcript for chatter, or point evidence at the wrong span) makes the harness's metric move in the expected direction and, if it crosses the floor, <strong>fails the gate</strong> — proving the gate has teeth (not just "a number printed").</li>
+    <li><code>STANDBY_LIVE_MODEL=1 ./scripts/verify-live-proposal-eval.sh</code> writes <code>docs/evidence/ai-first-proposals/eval/report.json</code> with per-metric point estimate + bootstrap CI over K runs, and exits non-zero if a lower CI bound is below the bar.</li>
+    <li><code>./scripts/verify.sh</code> stays green (the anchor is wired in); <code>verify-model-proposals.sh</code> heuristic-symbol grep stays green.</li>
+    <li>No secret or raw transcript text in the checked-in report (redacted like <code>verify-live-model-proposal.sh</code>).</li>
+  </ul>
+
+  <h2>Verification system</h2>
+  <table>
+    <tbody>
+      <tr><th>Claim</th><td>Standby's proposals are useful and low-noise: paraphrased asks produce grounded cards of the right kind; negated/vague chatter stays silent — measurably, with a confidence interval.</td></tr>
+      <tr><th>Falsifier</th><td>On the held-out corpus the real model proposes on negative cases above the false-rate bar, misses positives below the recall bar, or the "eval" only asserts card shape.</td></tr>
+      <tr><th>Driver</th><td><code>tests/proposal_eval.rs</code> + <code>verify-proposal-eval.sh</code> (anchor); <code>verify-live-proposal-eval.sh</code> (live, K=5).</td></tr>
+      <tr><th>Grader</th><td>Deterministic decision metrics vs labels; live lane adds bootstrap CI; pass on lower bound.</td></tr>
+      <tr><th>Evidence packet</th><td><code>docs/evidence/ai-first-proposals/eval/</code> (report.json + per-run metrics).</td></tr>
+      <tr><th>Cadence</th><td>Anchor: every CI run. Live: before any proposal-quality claim / nightly-or-manual.</td></tr>
+      <tr><th>Gaps / waiver</th><td>v1 measures decision + span-overlap, not full text faithfulness (judge child deferred). Span-overlap can pass a card whose prose is weak but whose citations are right — acceptable for v1, named as residual.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Repo anchors</h2>
+  <ul class="anchor">
+    <li>crates/standby-core/src/engine.rs — propose() 135-249, provider_response 251-273, recorded stub 551-639, candidate_evidence 641-676, schema 478-522</li>
+    <li>crates/standby-core/tests/fixture_replay.rs — the in-process test-harness pattern to follow</li>
+    <li>crates/standby-core/tests/fixtures/model_proposal_positive.json — the recorded ModelProposalResponse format the anchors reuse</li>
+    <li>scripts/verify-model-proposals.sh — the deterministic gate to extend / sit beside</li>
+    <li>scripts/verify-live-model-proposal.sh — the live-gated pattern (env gate, evidence dir, redaction) to mirror</li>
+    <li>crates/standby-core/src/domain.rs — ProposalKind, Proposal, TranscriptEvidence, TranscriptSegment</li>
+    <li>docs/evidence/real-meeting/ — corpus seed transcripts</li>
+  </ul>
+
+  <h2>Risks + rollout</h2>
+  <ul>
+    <li><strong>Labels encode the author's bias.</strong> Mitigate: keep cases small and unambiguous; borderline cases go in an <code>ambiguous</code> bucket excluded from the hard bars but reported.</li>
+    <li><strong>First live run undershoots the bar.</strong> That is the intended failure mode — it means the bet needs work (prompt, model, or boundary). Surface as a finding + a follow-up ticket; do not lower the bar to green. (Stop condition.)</li>
+    <li><strong>Corpus drift vs model updates.</strong> The pinned model (<code>gpt-5.5</code>, engine.rs:16) can change behavior; the live lane re-measures, the anchor holds the line for the Rust pipeline. Re-capture anchors deliberately, with a recorded reason.</li>
+    <li><strong>Rollout / undo:</strong> additive — new fixtures, one test, two scripts, README rows. Revert = drop the files + unwire from <code>verify.sh</code>. No product-code behavior change.</li>
+  </ul>
+
+  <h2>Premise Source</h2>
+  <p>Premise artifact: <code>backlog.d/011-proposal-quality-eval-harness.md</code> (this session's mega-groom emission) + the convergent groom lanes recorded in the branch <code>groom/backlog-refill-vision</code> commit <code>22e528b</code>.</p>
+  <div class="callout warn"><strong>Grader waiver (deliberate):</strong> <code>/shape</code>'s Verification section calls <code>harness-kit-checks -- premise-source validate</code>. That subcommand does not exist in the current crate <em>and</em> <code>harness-kit-checks</code> is not present in this repo — the exact phantom-command + non-portability defect filed as harness-kit <code>backlog.d/118</code> (and <code>113</code>). The premise-source grader is therefore <strong>waived</strong>; acceptance is this packet's cited live-repo evidence (file:line reads above) and the executable oracle.</div>
+
+  <h2>Handoff to /deliver</h2>
+  <ul>
+    <li>Deliverable: code (Rust eval harness + 2 scripts + corpus fixtures) and an eval report artifact.</li>
+    <li>Start at build-sequence step 1 (harness before claim). Do not capture live responses until the runner + ≥10 cases exist.</li>
+    <li>High-risk dimension is <em>label quality</em>, not code — budget review on the corpus, not the harness plumbing.</li>
+    <li>Run <code>./scripts/verify.sh</code> first to confirm the green baseline (a background run is already in flight this session).</li>
+  </ul>
+
+</div>
+</body>
+</html>

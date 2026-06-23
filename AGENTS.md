@@ -7,6 +7,11 @@ meeting listener proposes low-noise cards from live context; deterministic
 approval endpoints spawn worker jobs and record every step in an append-only
 event log.
 
+North star: root `VISION.md` (audience, strategic bets, standards, non-goals,
+and what excellent looks like). This contract governs *how* we build; `VISION.md`
+governs *what* and *why*. Keep them consistent; do not duplicate vision prose
+here.
+
 ## Stack
 
 - Rust owns durable behavior, storage, API routes, capture supervision, and
@@ -44,6 +49,11 @@ absent they report CAPTURE-BLOCKED, never hang.
   is the only product subagent harness; no OMP fallback, no local-research
   fallback, no `STANDBY_WORKER_PROFILE`, no `STANDBY_ALLOW_NETWORK_WORKER`, and
   no worker-harness settings.
+- Accepted failure mode: if OpenCode, the pinned model, or the network is
+  unavailable, the job fails visibly (`agent_job.failed` + receipt) and Standby
+  does not fall back to another substrate. This single point of failure is an
+  accepted risk, not a gap — see
+  `docs/decisions/0003-opencode-only-accepted-failure-mode.md`.
 - Approval is the deterministic product gate. The server still owns schema
   validation, prompt redaction, event persistence, sandbox policy, receipt
   recording, and visible failure states; the model/agent never approves itself.

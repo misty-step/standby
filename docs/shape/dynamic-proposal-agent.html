@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Packet — Dynamic Proposal Agent (real model, wired)</title>
+<style>
+  :root{--ink:#14181f;--muted:#5a6473;--line:#dfe4ea;--bg:#fbfcfd;--card:#fff;--accent:#2f6f4f;--warn:#9a5b00;--bad:#9a2f2f;--good:#1f7a4d;--code:#0f172a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:30px;line-height:1.15;margin:0 0 4px}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:15px;margin:20px 0 6px;color:var(--accent);letter-spacing:.02em;text-transform:uppercase;font-weight:700}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:14px}
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px 26px;box-shadow:0 1px 0 rgba(20,24,31,.03)}
+  .hero .lead{font-size:18px;margin:0 0 16px}
+  .grid{display:grid;grid-template-columns:150px 1fr;gap:8px 18px}
+  .grid dt{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.02em;padding-top:2px}
+  .grid dd{margin:0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#f1f4f7;font-size:12.5px;text-transform:uppercase;letter-spacing:.02em;color:#374151}
+  code{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef1f4;padding:1px 5px;border-radius:5px}
+  pre{background:var(--code);color:#e6edf3;padding:14px 16px;border-radius:10px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,monospace}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid}
+  .p0{color:var(--bad);border-color:#e3b7b7;background:#fbeeee}.keep{color:var(--good);border-color:#bfe0cc;background:#eef8f1}.rej{color:var(--bad);border-color:#e3b7b7;background:#fbeeee}.defer{color:var(--warn);border-color:#e6d3a8;background:#fcf6ec}
+  .callout{border-left:4px solid var(--accent);background:#f3f8f5;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .warn{border-left-color:var(--warn);background:#fcf6ec}
+  ul{margin:8px 0;padding-left:20px}li{margin:4px 0}
+  .lane{counter-reset:step;list-style:none;padding-left:0}
+  .lane li{position:relative;padding:10px 0 10px 44px;border-top:1px solid var(--line)}
+  .lane li:before{counter-increment:step;content:counter(step);position:absolute;left:0;top:10px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .anchor{font:12px/1.5 ui-monospace,Menlo,monospace}.muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Context Packet — Dynamic Proposal Agent</h1>
+  <p class="sub">Deliverable: <strong>code + eval</strong> · supersedes the "go OpenAI Realtime" instinct (research killed it) · turns <code>011</code> real · Shaped 2026-06-23</p>
+
+  <section class="hero">
+    <p class="lead"><strong>Target outcome:</strong> proposal cards become genuinely contextual — they appear, <em>update</em>, and <em>retire</em> as the live conversation shifts (talk market research → the card becomes about market research) — driven by a <strong>real model the first time</strong>, never a stub.</p>
+    <dl class="grid">
+      <dt>Chosen design</dt><dd>A real <strong>OpenRouter</strong> reasoner (default, not a stub) called on a <strong>debounced/changed-transcript trigger</strong> (not per-segment) over a sliding window, returning <strong>ledger patch ops</strong> (<code>add / update / retire</code> by card id) against an event-sourced card ledger. Strict JSON via <code>response_format</code> + <code>require_parameters</code>; honest failure, no keyword fallback.</dd>
+      <dt>Why it wins</dt><dd>Fixes the two real causes the operator hit live: (1) the default was a content-blind <em>fixture</em>; (2) per-segment firing + no supersede = spammy and frozen. Cascade beats Realtime for a non-speaking listener (5–30× cheaper, strict-JSON-capable, no 60-min cap). ~$0.08–0.17/meeting.</dd>
+      <dt>Proof surface</dt><dd><code>011</code> eval over a labeled corpus using <em>recorded real OpenRouter responses</em> (not a stub) + a gated live run; live-QA: a real meeting where pivoting topics visibly updates/retires the card.</dd>
+      <dt>Stop conditions</dt><dd>(1) <code>z-ai/glm-5.2</code> not on OpenRouter's <code>structured_outputs</code> list → use <code>deepseek-v4-pro</code>, don't hack around strict. (2) Reasoner can't reliably emit retire/update ops in eval → escalate to <code>gpt-5.4-mini</code> before adding a gate. (3) If the schema/ledger change ripples into approval/worker dispatch unexpectedly → stop, the seam is wrong.</dd>
+    </dl>
+  </section>
+
+  <h2>Goal · Non-Goals · Constraints</h2>
+  <h3>Goal</h3>
+  <p>Make live proposal cards reflect what is actually being discussed and stay current as the conversation moves — produced by a real model by default, with reliable structured output and honest failure.</p>
+  <h3>Non-Goals</h3>
+  <ul>
+    <li><strong>No OpenAI Realtime API.</strong> Research (this session) shows it's the wrong tool for a non-speaking listener: 5–30× cost, no structured outputs (Agents SDK: "RealtimeAgent does not support structured outputs"), weaker tool-calling, 60-min cap + latency drift. We already have a free on-device transcript.</li>
+    <li><strong>No tool/function-calling for cognition.</strong> The card/ledger patch is the model's <em>answer</em>, validated and applied by deterministic Rust → <code>response_format</code>, not tools. (Red Line: the server owns mutation; the model suggests only; no transcript path gets tool/network surface.)</li>
+    <li><strong>No stub-as-default.</strong> <code>Recorded</code> becomes test/fixture-only. Ever.</li>
+    <li><strong>Not in this slice:</strong> a separate cheap "gate" model, semantic-embedding dedup, and multi-card concurrency. Deferred to a <em>measured</em> fast-follow (see Alternatives B).</li>
+    <li>No UI redesign (the UX-polish items live in 013); this is the cognition engine.</li>
+  </ul>
+  <h3>Constraints / invariants</h3>
+  <ul>
+    <li>Rust owns the ledger; every card add/update/retire is an append-only event (the projection is the source of truth). Cognition never mutates external systems.</li>
+    <li>Evidence-cited: every card cites real transcript segment ids/indexes (the existing <code>candidate_evidence</code> rejection at <code>engine.rs:641-676</code> stays).</li>
+    <li><code>./scripts/verify.sh</code> stays green; <code>verify-model-proposals.sh</code>'s "no heuristic engine symbols" grep stays green (we add a model provider, we don't add keyword logic).</li>
+    <li>Old ledgers must still project (event-sourced: new event types are additive; <code>ProposalStatus</code> gains a variant — keep serde tolerant).</li>
+    <li><strong>Approved cards are immutable and dispatch their current content.</strong> No <code>update</code>/<code>retire</code> may alter an <code>Approved</code> card (fold-enforced), and approve/ignore must resolve the latest (post-update) payload, not the original.</li>
+  </ul>
+
+  <h2>Premise challenge &amp; alternatives</h2>
+  <p>The request was "make it dynamic with a gate + reasoner + dedup." Challenged: the operator's real outcome is "cards track the conversation and don't freeze." The cheap-gate and embedding-dedup are <em>cost/quality optimizations</em>, not prerequisites — a debounced reasoner that patches a small ledger delivers the outcome with far less surface. Build the outcome; add the optimizations when data demands.</p>
+  <table>
+    <thead><tr><th>Option</th><th>How it fails / costs</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td><strong>A — Debounced OpenRouter reasoner + ledger patch ops</strong> (chosen)</td><td>One model call per debounced trigger (~10–20/meeting) decides add/update/retire over the open card(s) given a sliding window. No separate gate, no embeddings. Risk: reasoner must reliably emit retire/update — provable in the eval. Cost: pennies/meeting.</td><td><span class="pill keep">Choose (first slice)</span></td></tr>
+      <tr><td>B — A + cheap gate model (<code>deepseek-v4-flash</code>) + semantic-embedding dedup + multi-card ledger</td><td>Adds a second model, an embedding store, and concurrency. Real value only at high fire-rate / many concurrent cards. Premature before A is measured (011).</td><td><span class="pill defer">Defer (measured fast-follow)</span></td></tr>
+      <tr><td>C — Persistent OpenAI Realtime session, audio streamed in</td><td>Wrong tool for a non-speaking listener: 5–30× cost (audio tokens resent each turn), no strict structured outputs, weaker tool-calling, 60-min cap + progressive latency drift. We already have the transcript free.</td><td><span class="pill rej">Reject (research-killed)</span></td></tr>
+      <tr><td>D — Boring: keep per-segment, just flip to the real model</td><td>Fixes the stub but NOT the freeze/spam — per-segment firing + open-proposal gate still sticks one card. Half a fix.</td><td><span class="pill rej">Reject (insufficient)</span></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Design</h2>
+
+  <h3>1 · Provider boundary — <code>ProposalProvider::OpenRouter</code> (direct, not via OpenCode)</h3>
+  <p>Add a third arm to the existing enum (<code>engine.rs:26-34</code>), mirroring the <code>OpenAi</code> arm's thread-spawn + blocking <code>reqwest</code> plumbing but posting to <strong>OpenRouter Chat Completions</strong> (<code>https://openrouter.ai/api/v1/chat/completions</code>) instead of the Responses API. Reuse <code>proposal_agent_instructions()</code>, <code>proposal_agent_input()</code>, and the <code>parse_model_response → ModelProposalResponse</code> tail verbatim (<code>engine.rs:442-446</code>). Cognition stays a thin read-only API call — <strong>never</strong> the OpenCode worker (that's sandboxed post-approval execution; routing cognition through it inverts the trust model and adds subprocess+sandbox latency for a per-segment call).</p>
+  <pre>// from_env(): real model is the DEFAULT. Recorded is test-only.
+match STANDBY_PROPOSAL_PROVIDER (default "openrouter"):
+  "openrouter" => OpenRouter { api_key: OPENROUTER_API_KEY,
+                               model:  STANDBY_OPENROUTER_PROPOSAL_MODEL  (default "deepseek/deepseek-v4-pro") }
+  "openai"     => OpenAi { ... }            // kept
+  "recorded"   => Recorded { ... }          // TEST/FIXTURE ONLY — never the default
+
+// request body (Chat Completions):
+{ model, messages:[{role:system, instructions}, {role:user, input}],
+  response_format: { type:"json_schema", json_schema:{ name, strict:true, schema: proposal_response_schema() }},
+  provider: { require_parameters: true, sort: "latency" },   // <- only route to providers that honor strict
+  plugins: [ { id: "response-healing" } ], temperature: 0 }</pre>
+  <div class="callout warn"><strong>Reliable strict JSON, no stub fallback (verified vs OpenRouter docs, 2026-06-23):</strong> <code>provider.require_parameters:true</code> is load-bearing — without it OpenRouter routes to a provider that silently drops the schema and returns prose (or a misleading 404). Response-Healing repairs JSON <em>syntax</em> (not schema). Then <code>serde</code> parse <em>is</em> the schema validator: on failure, <strong>retry once</strong> with a corrective system message; on exhausted retries emit the existing honest <code>no_proposal("model_provider_error: …")</code> (<code>engine.rs:178-194</code>) — <strong>not</strong> a keyword card. Verify <code>z-ai/glm-5.2</code> appears under <code>openrouter.ai/models?supported_parameters=structured_outputs</code> before pinning it; otherwise default to <code>deepseek-v4-pro</code>.</div>
+
+  <h3>2 · Trigger &amp; cadence — decouple from per-segment</h3>
+  <p>Today <code>ingest()</code> calls the agent on <em>every</em> finalized segment (<code>transcript_source.rs:297-302</code>) — the spam/freeze root. Replace with a <strong>debounced, change-gated</strong> trigger owned by the daemon/capture supervisor: coalesce to at most one reasoner call per <code>N</code> seconds (default ~15–20s, env-tunable) <em>and only when the transcript actually advanced</em> since the last call. The reasoner receives a <strong>sliding window</strong> (recent K segments + the current open cards) — not the whole transcript — keeping cost flat and the model focused on "now". (A separate cheap classifier gate is Option B; the debounce + change-gate is the simpler trigger that ships first.)</p>
+
+  <h3>3 · Card ledger — event-sourced patch ops</h3>
+  <p>The reasoner returns operations against the open cards, so a restated topic updates the open card and a dropped topic retires it — instead of freezing one card or stacking duplicates. This extends the proposal data model (today single-card, <code>ProposalStatus = Proposed|Approved|Ignored</code>). <strong>The six points below are load-bearing — a fresh-context critic proved the naive version dispatches stale cards, lets the model clobber approved ones, and re-creates the duplicates it exists to kill:</strong></p>
+  <ul>
+    <li><strong>Approve/ignore must act on the CURRENT card (blocker).</strong> <code>find_latest_proposal</code> (<code>event_log.rs:373-379</code>) scans only <code>proposal.created/approved/ignored</code> — it is BLIND to <code>proposal.updated</code>. After a card updates ("→ market research"), the operator approves it in the UI and the server would dispatch the <em>pre-update</em> payload (stale title/prompt/evidence via <code>build_job_spec</code>, <code>worker.rs:100-117</code>). FIX: add <code>PROPOSAL_UPDATED</code>/<code>PROPOSAL_RETIRED</code> to that query's event-type list. (The earlier "approval paths untouched" assumption WAS the bug.)</li>
+    <li><strong>Approved cards are immutable — enforced in the fold, not the prompt (blocker).</strong> <code>upsert_by_id</code> (<code>event_log.rs:458-467</code>) blind-replaces by id with no status guard, so a <code>retire</code>/<code>update</code> op targeting an <code>Approved</code> card would clobber it. Add a status check before replace that DROPS any update/retire whose target is already <code>Approved</code>. A prompt-only "don't touch approved cards" is not enforcement against a non-deterministic open model. (In-flight worker jobs are independently safe — dispatch + <code>recoverable_jobs</code> key off <code>agent_job.*</code>, never proposal status — but the projected card state must not be clobberable.)</li>
+    <li><strong>Closed id contract or it re-creates duplicates (major).</strong> The server mints ids today (<code>new_id("prop")</code>, <code>engine.rs:217-218</code>) — the model has never seen one, and <code>proposal_agent_input()</code> (<code>engine.rs:460-476</code>) passes transcript only. FIX: inject each open card's real <code>id</code> into the model input, AND have the fold <strong>reject</strong> any <code>update</code>/<code>retire</code> whose <code>card_id</code> isn't a currently-open card (mirror the unknown-segment-id rejection in <code>candidate_evidence</code>, <code>engine.rs:653-657</code>). Without this, a hallucinated id misses <code>upsert_by_id</code> and <strong>falls through to push a new orphan card</strong>.</li>
+    <li><strong>Deterministic post-parse op-coherence validator — NOT serde alone (major).</strong> Strict JSON Schema can't express "<code>card_id</code> required for update/retire, absent for add" in a flat object, and serde's pervasive <code>#[serde(default)]</code> (<code>engine.rs:63-74,83-86</code>) silently accepts a <code>retire</code> with no id. Model the schema as a <strong>per-op discriminated union</strong>, and regardless, validate every op after parse (op↔card_id coherence; card_id resolves to an open card; evidence passes <code>candidate_evidence</code>). On ANY violation → honest <code>no_proposal("model_provider_error: …")</code>, never a silent partial mutation. "serde parse is the schema validator" is false for these cross-field constraints.</li>
+    <li><strong>Events</strong>: add <code>PROPOSAL_UPDATED</code> + <code>PROPOSAL_RETIRED</code> (<code>domain.rs:475-479</code>) + <code>ProposalStatus::Retired</code> (<code>domain.rs:47</code>); fold via the existing <code>upsert_by_id</code> arm (<code>event_log.rs:225-229</code>) plus the immutability guard above. A retired un-approved card drops out of the open set + the open-proposal gate.</li>
+    <li><strong>Dedup (this slice)</strong>: with open-card ids in the input, the reasoner is instructed to <code>update</code> rather than <code>add</code> when the topic matches — model-driven dedup. Embedding-similarity dedup is Option B.</li>
+  </ul>
+
+  <h3>4 · Models (OpenRouter, verified 2026-06-23)</h3>
+  <table>
+    <thead><tr><th>Role</th><th>Slug</th><th>$ in/out per 1M</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Reasoner (default)</td><td><code>deepseek/deepseek-v4-pro</code></td><td>$0.435 / $0.87</td><td>Best quality-per-$, 1M ctx, strict-capable.</td></tr>
+      <tr><td>Reasoner (alt)</td><td><code>z-ai/glm-5.2</code></td><td>~$1.40 / $4.40</td><td>Best measured structured-output (~1.3% err) + IFBench — <em>iff</em> it's on the structured_outputs list.</td></tr>
+      <tr><td>Reliability fallback</td><td><code>openai/gpt-5.4-mini</code></td><td>$0.75 / $4.50</td><td>Battle-tested strict mode if open-model JSON adherence wobbles in QA.</td></tr>
+      <tr><td>Gate (Option B only)</td><td><code>deepseek/deepseek-v4-flash</code></td><td>$0.09 / $0.18</td><td>Cheap classifier when fire-rate justifies a pre-gate.</td></tr>
+      <tr><td class="muted">Avoid</td><td class="muted"><code>google/gemini-3.5-flash</code> via OpenRouter</td><td class="muted">$1.50/$9.00</td><td class="muted">Broken tool-calling (thought_signature stripped), unreliable strict, 2 providers. Use Google native if ever needed.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Build sequence (verification system first)</h3>
+  <ol class="lane">
+    <li><strong>Provider + real default first.</strong> Add <code>ProposalProvider::OpenRouter</code>, flip <code>from_env()</code> default to it, demote <code>Recorded</code> to test-only. Prove a real card from a live transcript end-to-end (the operator can re-test the Meet immediately). Update BOTH gates: <code>verify-model-proposals.sh</code>'s fixture-shape check (now <code>{operations:[…]}</code>, not <code>proposals[]</code>) and <code>verify-live-model-proposal.sh</code> (today pins <code>STANDBY_PROPOSAL_PROVIDER=openai</code> + asserts <code>provider==openai</code> — repoint to <code>openrouter</code>). Keep the <code>recorded()</code>/<code>recorded_fixture()</code> test constructors; CI fixtures become <em>recorded real responses</em>, not the synthetic stub.</li>
+    <li><strong>Ledger patch ops.</strong> Extend schema + add <code>PROPOSAL_UPDATED/RETIRED</code> + <code>ProposalStatus::Retired</code> + projection fold. Reasoner emits add/update/retire over open cards.</li>
+    <li><strong>Debounced/change-gated trigger</strong> replacing per-segment firing; sliding window.</li>
+    <li><strong>011 eval wired</strong> (the proof): the corpus runs through recorded real responses (CI anchor) + gated live (<code>STANDBY_LIVE_MODEL=1</code>), scoring whether topic-pivots produce the right update/retire ops. Cost guardrail + honest-failure path land here.</li>
+  </ol>
+
+  <h2>Oracle — executable definition of done</h2>
+  <ul>
+    <li>With <code>OPENROUTER_API_KEY</code> set and no provider override, a fresh meeting produces a card whose content reflects the actual transcript (provider in the projection = <code>openrouter</code>, not <code>recorded-model</code>).</li>
+    <li>Eval: a corpus case that <em>pivots topic</em> (e.g. action-items → market-research) yields a <code>retire</code>/<code>update</code> op so the open card tracks the pivot; a deliberately content-blind output fails the eval.</li>
+    <li>Strict-JSON: a forced malformed/contractless response triggers exactly one retry then an honest <code>no_proposal("model_provider_error")</code> — never a keyword card. (Test with a fixture / a bad model.)</li>
+    <li><strong>Regression (the critic's blockers):</strong> (a) approve a card, then a <code>retire</code>/<code>update</code> op targeting it leaves it <code>Approved</code> + unchanged (fold guard); (b) approving a card AFTER an <code>update</code> dispatches the worker from the UPDATED payload, not the original (<code>find_latest_proposal</code> sees <code>proposal.updated</code>); (c) an <code>update</code>/<code>retire</code> with a <code>card_id</code> not in the open set → honest <code>no_proposal</code>, never a new orphan card.</li>
+    <li><code>./scripts/verify.sh</code> green; <code>verify-model-proposals.sh</code> heuristic-symbol grep green; old ledgers with only <code>proposal.created</code> still project.</li>
+    <li>Per-meeting model spend stays under a configured ceiling (gate-rate/debounce cap honored).</li>
+  </ul>
+
+  <h2>Verification system</h2>
+  <table><tbody>
+    <tr><th>Claim</th><td>Cards are model-native and track the live conversation: topic pivots update/retire cards; the agent never runs a content-blind stub by default.</td></tr>
+    <tr><th>Falsifier</th><td>The default path is the recorded stub; or a topic pivot leaves a stale card; or strict-JSON failures silently degrade to keyword cards; or the "eval" only checks card shape.</td></tr>
+    <tr><th>Driver</th><td><code>011</code> corpus through the <code>Recorded</code>-replay of <em>captured real OpenRouter responses</em> (CI anchor) + <code>verify-live-proposal-eval.sh</code> (gated <code>STANDBY_LIVE_MODEL=1</code>, real OpenRouter) + a live-meeting QA walk.</td></tr>
+    <tr><th>Grader</th><td>Per-pivot correctness of add/update/retire ops + evidence-grounding; decision precision/recall/false-proposal-rate with a bootstrap CI (per 011); plus a "default provider != recorded" assertion.</td></tr>
+    <tr><th>Evidence packet</th><td><code>docs/evidence/ai-first-proposals/dynamic/</code> (eval report + a recorded topic-pivot transcript showing the card updating).</td></tr>
+    <tr><th>Cadence</th><td>CI on every change (recorded-real anchor); gated live before any quality claim; live-QA before "ship".</td></tr>
+    <tr><th>Gaps / waiver</th><td>Recorded-real responses are captured once and can drift from the live model; re-capture deliberately. Model-driven dedup (not embeddings) may under-merge near-duplicate topics — measured, Option B if it bites.</td></tr>
+  </tbody></table>
+
+  <h2>Repo anchors</h2>
+  <ul class="anchor">
+    <li>crates/standby-core/src/engine.rs — ProposalProvider enum (26-34), from_env (97-117), propose (135-249), provider_response (251-273), openai_response/send (382-446), instructions+input (449-475), schema (478-522), candidate_evidence (641-676)</li>
+    <li>crates/standby-core/src/domain.rs — Proposal (320), ProposalStatus (47), ProposalKind (21), NoProposal (336), proposal event_types (475-479)</li>
+    <li>crates/standby-core/src/event_log.rs — projection proposal fold (219-229, upsert_by_id), has_open_proposal usage</li>
+    <li>crates/standby-core/src/transcript_source.rs — ingest → propose_from_meeting_context (297-302) [the per-segment trigger to replace]</li>
+    <li>crates/standbyd/src/main.rs — approve (421), ignore (467); crates/standby-core/src/worker.rs — approve_proposal (146)</li>
+    <li>scripts/verify-model-proposals.sh, scripts/verify-live-model-proposal.sh — gates to update; backlog.d/011-proposal-quality-eval-harness.md — the eval this feeds</li>
+  </ul>
+
+  <h2>Risks + rollout</h2>
+  <ul>
+    <li><strong>Open-model strict-JSON adherence wobbles.</strong> Mitigated by <code>require_parameters</code> + healing + validate-retry + the <code>gpt-5.4-mini</code> fallback. Stop-condition if eval shows it can't hold the contract.</li>
+    <li><strong>Ledger change ripples into approval/worker dispatch.</strong> Keep approve/ignore paths untouched; retire only affects un-approved cards. Regression test: approve a card, then a retire op must NOT un-approve it.</li>
+    <li><strong>Cost surprise.</strong> Debounce + sliding window + per-meeting ceiling; the eval reports real per-meeting spend.</li>
+    <li><strong>Op-thrash on a flapping conversation</strong> (topic A→B→A → retire/add churn). The spend ceiling is not a stability damper — add hysteresis (don't retire-then-re-add the same card within a window); 011 must measure churn, not only decision quality.</li>
+    <li><strong>Keyless bare runs regress.</strong> Today a keyless <code>cargo run -p standbyd</code> shows a (content-blind) card; with the real default it shows only <code>no_proposal</code> until <code>OPENROUTER_API_KEY</code> is set. Make that an explicit, actionable first-run state ("set OPENROUTER_API_KEY"), honest — not silently empty.</li>
+    <li><strong>Rollout/undo:</strong> additive (new provider arm, new event types, new status variant, trigger swap). Revert = restore the per-segment call + default provider; new event types are forward-compatible in the ledger.</li>
+  </ul>
+
+  <h2>Adversarial review focus (critic ran 2026-06-23 — findings folded above)</h2>
+  <p class="muted">A fresh-context critic returned <strong>fix-spec-then-deliver</strong> with 3 load-bearing findings — all now closed in §3/Constraints/Oracle: (1) <code>find_latest_proposal</code> must see <code>proposal.updated</code>; (2) approved-card immutability enforced in the fold; (3) closed id contract + deterministic op-coherence validator. <strong>Single residual risk:</strong> strict-mode schema variance across open models (DeepSeek/GLM) on the conditional-<code>card_id</code> multi-op union is empirical — the post-parse validator is the deterministic backstop, and 011 must confirm the chosen model holds the contract before any quality claim. Re-run a critic on the diff at deliver time. Original focus questions kept for /deliver:</p>
+  <ul>
+    <li>Does the retire/update op model actually prevent the "frozen card" + "spam" failure, or just move it? Trace a 3-topic-pivot transcript through the projection fold by hand.</li>
+    <li>Is making <code>openrouter</code> the <em>default</em> safe when <code>OPENROUTER_API_KEY</code> is unset — does it fail honestly (no card + clear error) rather than crash or silently stub?</li>
+    <li>Does demoting <code>Recorded</code> break the existing fixture-replay tests / <code>verify-model-proposals.sh</code> assumptions?</li>
+    <li>Is <code>response_format</code> (not tool-calling) genuinely sufficient for multi-op ledger patches across DeepSeek/GLM, given the per-provider strict-mode variance?</li>
+  </ul>
+
+  <h2>Premise Source</h2>
+  <p>This session's research lanes (3 web-retrieval lanes on the OpenAI Realtime architecture decision + 2 on OpenRouter model selection / provider-boundary), grounded in: OpenAI Realtime docs + Agents SDK (no structured outputs); LiveKit <em>realtime-vs-cascade</em> (2026-04-17); Gladia modular-pipeline (2026-04-10); OpenRouter structured-outputs + provider-routing docs (2026-06-23); the live OpenRouter model API for slugs/pricing. Plus direct reads of the live repo (anchors above).</p>
+  <div class="callout warn"><strong>Grader waiver:</strong> <code>/shape</code>'s premise-source grader (<code>harness-kit-checks -- premise-source validate</code>) is the phantom-command / non-portable issue filed as harness-kit <code>118</code>/<code>113</code> — the subcommand doesn't exist and the crate isn't in this repo. Waived; acceptance is this packet's cited live-repo evidence + executable oracle.</div>
+
+  <h2>Handoff to /deliver</h2>
+  <ul>
+    <li>Build in the sequence above; <strong>step 1 (real provider default) is the no-regret unblock</strong> — ship it so the operator can re-test the Meet on a real model immediately, before the ledger work.</li>
+    <li>High-risk dimension is <em>strict-JSON reliability across open models</em> and the <em>ledger fold correctness</em> — budget review there, not on the HTTP plumbing.</li>
+    <li>This packet pairs with <code>011</code> (the eval is the proof loop) — do not claim "more contextual" without the eval delta.</li>
+    <li>Run <code>./scripts/verify.sh</code> green before and after; capture a topic-pivot evidence transcript.</li>
+  </ul>
+
+</div>
+</body>
+</html>

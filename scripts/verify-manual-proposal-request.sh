@@ -6,6 +6,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Deterministic proof: use the recorded proposal provider unless overridden.
+export STANDBY_PROPOSAL_PROVIDER="${STANDBY_PROPOSAL_PROVIDER:-recorded}"
+
 EVIDENCE="${STANDBY_EVIDENCE_DIR:-docs/evidence/operator-action-control}"
 mkdir -p "$EVIDENCE"
 export EVIDENCE

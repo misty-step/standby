@@ -7,6 +7,8 @@
 /docs/evidence/real-meeting/*.jsonl
 /docs/evidence/real-meeting/*.tmp
 /docs/evidence/real-meeting/longrun-samples.csv
+/docs/evidence/ai-first-proposals/live-model/seed-projection.json
+/docs/evidence/ai-first-proposals/live-model/proposal-response.json
 *.log
 .DS_Store
 /native/StandbyCapture.app/

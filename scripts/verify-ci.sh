@@ -7,6 +7,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Deterministic gate: pin the recorded proposal provider (the real OpenRouter
+# default is proven by scripts/verify-live-model-proposal.sh).
+export STANDBY_PROPOSAL_PROVIDER="${STANDBY_PROPOSAL_PROVIDER:-recorded}"
+
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "verify-ci: Standby's worker sandbox gate requires macOS sandbox-exec" >&2
   exit 2

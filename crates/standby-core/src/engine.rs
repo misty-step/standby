@@ -14,7 +14,9 @@ use std::time::Duration;
 const DEFAULT_CONTEXT_LIMIT: usize = 12;
 const DEFAULT_CONFIDENCE_FLOOR: f32 = 0.55;
 const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
+const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-pro";
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
+const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 #[derive(Debug, Clone)]
 pub struct ProposalAgent {
@@ -28,6 +30,10 @@ enum ProposalProvider {
         fixture: Option<PathBuf>,
     },
     OpenAi {
+        api_key: Option<String>,
+        model: String,
+    },
+    OpenRouter {
         api_key: Option<String>,
         model: String,
     },
@@ -95,8 +101,11 @@ struct ProposalContext<'a> {
 
 impl ProposalAgent {
     pub fn from_env() -> Self {
+        // The real model is the default in production; tests default to the
+        // deterministic recorded fixture so the suite never hits the network.
+        // Override either with STANDBY_PROPOSAL_PROVIDER.
         let provider = match std::env::var("STANDBY_PROPOSAL_PROVIDER")
-            .unwrap_or_else(|_| "recorded".to_string())
+            .unwrap_or_else(|_| (if cfg!(test) { "recorded" } else { "openrouter" }).to_string())
             .as_str()
         {
             "openai" => ProposalProvider::OpenAi {
@@ -104,10 +113,15 @@ impl ProposalAgent {
                 model: std::env::var("STANDBY_OPENAI_PROPOSAL_MODEL")
                     .unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string()),
             },
-            _ => ProposalProvider::Recorded {
+            "recorded" => ProposalProvider::Recorded {
                 fixture: std::env::var("STANDBY_PROPOSAL_FIXTURE")
                     .ok()
                     .map(PathBuf::from),
+            },
+            _ => ProposalProvider::OpenRouter {
+                api_key: std::env::var("OPENROUTER_API_KEY").ok(),
+                model: std::env::var("STANDBY_OPENROUTER_PROPOSAL_MODEL")
+                    .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_string()),
             },
         };
         Self {
@@ -269,6 +283,12 @@ impl ProposalAgent {
                     .ok_or_else(|| anyhow!("OPENAI_API_KEY is required for openai provider"))?;
                 openai_response(api_key, model, context, input)
             }
+            ProposalProvider::OpenRouter { api_key, model } => {
+                let api_key = api_key
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("OPENROUTER_API_KEY is required for openrouter provider"))?;
+                openrouter_response(api_key, model, context, input)
+            }
         }
     }
 
@@ -284,6 +304,12 @@ impl ProposalAgent {
                 provider: "openai".to_string(),
                 model: model.clone(),
                 mode: "responses_api".to_string(),
+                reasoning_summary: None,
+            },
+            ProposalProvider::OpenRouter { model, .. } => ProposalModelMetadata {
+                provider: "openrouter".to_string(),
+                model: model.clone(),
+                mode: "chat_completions".to_string(),
                 reasoning_summary: None,
             },
         }
@@ -444,6 +470,94 @@ fn send_openai_response(
     parsed.model = model;
     parsed.mode = "responses_api".to_string();
     Ok(parsed)
+}
+
+fn openrouter_response(
+    api_key: &str,
+    model: &str,
+    context: &ProposalContext<'_>,
+    input: &ProposalAgentInput<'_>,
+) -> Result<ModelProposalResponse> {
+    let body = json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": proposal_agent_instructions()},
+            {"role": "user", "content": proposal_agent_input(context, input).to_string()}
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "standby_proposal_response",
+                "strict": true,
+                "schema": proposal_response_schema()
+            }
+        },
+        // Only route to providers that honor strict structured output; repair JSON
+        // syntax defects before they reach us. No content-blind fallback.
+        "provider": {"require_parameters": true, "sort": "latency"},
+        "plugins": [{"id": "response-healing"}],
+        "temperature": 0
+    });
+    let api_key = api_key.to_string();
+    let model = model.to_string();
+    std::thread::spawn(move || send_openrouter_response(api_key, model, body))
+        .join()
+        .map_err(|_| anyhow!("OpenRouter proposal request thread panicked"))?
+}
+
+fn send_openrouter_response(
+    api_key: String,
+    model: String,
+    body: Value,
+) -> Result<ModelProposalResponse> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("build OpenRouter HTTP client")?;
+    // One retry on a transient/contract failure, then propagate — which propose()
+    // surfaces as an honest no_proposal("model_provider_error"). Never a stub.
+    let mut last_err = None;
+    for _ in 0..2 {
+        match openrouter_content(&client, &api_key, &body)
+            .and_then(|content| parse_model_response(&content))
+        {
+            Ok(mut parsed) => {
+                parsed.provider = "openrouter".to_string();
+                parsed.model = model.clone();
+                parsed.mode = "chat_completions".to_string();
+                return Ok(parsed);
+            }
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("OpenRouter request failed")))
+}
+
+fn openrouter_content(client: &Client, api_key: &str, body: &Value) -> Result<String> {
+    let response = client
+        .post(OPENROUTER_CHAT_URL)
+        .bearer_auth(api_key)
+        .json(body)
+        .send()
+        .context("send OpenRouter chat request")?;
+    let status = response.status();
+    let text = response.text().context("read OpenRouter body")?;
+    if !status.is_success() {
+        bail!(
+            "OpenRouter request failed with {status}: {}",
+            truncate_for_card(&text, 500)
+        );
+    }
+    let envelope: Value = serde_json::from_str(&text).context("decode OpenRouter envelope")?;
+    envelope
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("OpenRouter response had no message content"))
 }
 
 fn proposal_agent_instructions() -> &'static str {

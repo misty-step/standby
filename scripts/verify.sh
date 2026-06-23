@@ -3,6 +3,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Deterministic gate: pin the recorded proposal provider. The real OpenRouter
+# model is the daemon's production default and is proven separately by
+# scripts/verify-live-model-proposal.sh (gated on STANDBY_LIVE_MODEL=1).
+export STANDBY_PROPOSAL_PROVIDER="${STANDBY_PROPOSAL_PROVIDER:-recorded}"
+
 # Rust unit + integration tests (includes the transcript-fixture replay and the
 # worker-sandbox containment negative test).
 cargo test --workspace

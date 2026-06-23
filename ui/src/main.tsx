@@ -173,22 +173,38 @@ const JOB_LABEL: Record<JobStatus, string> = {
 
 let operatorSession: Promise<void> | null = null;
 
-async function ensureOperatorSession(): Promise<void> {
+async function ensureOperatorSession(force = false): Promise<void> {
+  if (force) operatorSession = null;
   if (!operatorSession) {
-    operatorSession = fetch("/api/operator-session", { credentials: "same-origin" }).then((response) => {
-      if (!response.ok) throw new Error(`operator session failed: ${response.status}`);
-    });
+    operatorSession = fetch("/api/operator-session", { credentials: "same-origin" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`operator session failed: ${response.status}`);
+      })
+      .catch((err) => {
+        // Never cache a rejected handshake — the next action retries instead of
+        // failing forever.
+        operatorSession = null;
+        throw err;
+      });
   }
   return operatorSession;
 }
 
 async function post(path: string): Promise<MeetingProjection> {
   await ensureOperatorSession();
-  const response = await fetch(path, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-  });
+  const send = () =>
+    fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+    });
+  let response = await send();
+  if (response.status === 401) {
+    // The operator token went stale (e.g. the daemon restarted and minted a new
+    // one). Re-mint the session and retry once before surfacing an error.
+    await ensureOperatorSession(true);
+    response = await send();
+  }
   if (!response.ok) throw new Error(`${path} -> ${response.status}`);
   return response.json();
 }

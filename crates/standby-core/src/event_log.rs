@@ -2,7 +2,8 @@ use crate::JobStatus;
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
     MeetingEvent, MeetingProjection, NetworkWorkerConsent, NoProposal, Proposal, ProposalRequest,
-    SourceFailed, SourceFailure, SourceStarted, SourceState, SourceStatus, TranscriptSegment,
+    SourceFailed, SourceFailure, SourceStarted, SourceState, SourceStatus, SourceStopped,
+    TranscriptSegment,
     TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
 };
 use anyhow::{Context, Result};
@@ -255,6 +256,63 @@ impl EventStore {
             artifacts,
             events,
         })
+    }
+
+    /// Distinct meeting ids present in the ledger.
+    pub fn meeting_ids(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .connection
+            .prepare("select distinct meeting_id from meeting_events order by meeting_id")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(ids)
+    }
+
+    /// Reconcile a capture the ledger shows as running but that has no live
+    /// helper — after a daemon restart (the in-memory pid map starts empty) or a
+    /// stop for a meeting with no live process. Appends `source.stopped` when the
+    /// meeting is stuck started / not-stopped / not-failed, so the UI never sits
+    /// on a false "capturing" state it cannot clear. Idempotent.
+    pub fn reconcile_stopped_if_orphaned(&self, meeting_id: &str) -> Result<bool> {
+        let source = self.projection(meeting_id)?.source;
+        // Reconcile anything the ledger still treats as live (capturing /
+        // transcribing) — including a source kept alive by one lane after a
+        // per-lane failure. A whole-source `Failed` is already terminal and must
+        // not be masked as a clean stop; a waiting-permission meeting has
+        // started == false and is left for a fresh Start to re-init.
+        if source.started && !source.stopped && source.status != SourceStatus::Failed {
+            self.append(
+                meeting_id,
+                event_types::SOURCE_STOPPED,
+                Some(meeting_id),
+                None,
+                &SourceStopped {
+                    meeting_id: meeting_id.to_string(),
+                    source: source.source.unwrap_or(TranscriptSourceKind::LocalMac),
+                },
+            )?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Reconcile every meeting the ledger still treats as live to
+    /// `source.stopped`. On daemon boot no helper can be running yet, so any
+    /// such meeting was orphaned by a prior exit. Tolerates a malformed or
+    /// schema-evolved event in any single meeting's history (skips that meeting)
+    /// so one bad payload can never block startup — mirroring `recoverable_jobs`.
+    /// Returns the ids that were reconciled.
+    pub fn reconcile_orphaned_captures(&self) -> Result<Vec<String>> {
+        let mut reconciled = Vec::new();
+        for meeting_id in self.meeting_ids()? {
+            match self.reconcile_stopped_if_orphaned(&meeting_id) {
+                Ok(true) => reconciled.push(meeting_id),
+                Ok(false) => {}
+                Err(_) => {}
+            }
+        }
+        Ok(reconciled)
     }
 
     pub fn has_event_type(&self, meeting_id: &str, event_type: &str) -> Result<bool> {
@@ -727,6 +785,208 @@ mod tests {
             "no ghost partial under a stopped meeting"
         );
         assert_eq!(projection.source.status, SourceStatus::Stopped);
+    }
+
+    #[test]
+    fn reconcile_stops_an_orphaned_started_capture() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_orphan";
+        // A prior daemon started capture and was killed before writing
+        // source.stopped — the projection is stuck "capturing".
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::MicAndSystem,
+                },
+            )
+            .unwrap();
+        let before = store.projection(meeting).unwrap().source;
+        assert!(before.started && !before.stopped && before.failure.is_none());
+        assert_eq!(before.status, SourceStatus::Capturing);
+
+        assert!(store.reconcile_stopped_if_orphaned(meeting).unwrap());
+        let after = store.projection(meeting).unwrap().source;
+        assert!(after.stopped, "reconcile must mark the capture stopped");
+        assert_eq!(after.status, SourceStatus::Stopped);
+
+        // Idempotent: nothing left to reconcile.
+        assert!(!store.reconcile_stopped_if_orphaned(meeting).unwrap());
+    }
+
+    #[test]
+    fn reconcile_leaves_stopped_and_failed_captures_untouched() {
+        let store = EventStore::memory().unwrap();
+
+        let stopped = "m_stopped";
+        store
+            .append(
+                stopped,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: stopped.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::Mic,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                stopped,
+                event_types::SOURCE_STOPPED,
+                None,
+                None,
+                &SourceStopped {
+                    meeting_id: stopped.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                },
+            )
+            .unwrap();
+        assert!(!store.reconcile_stopped_if_orphaned(stopped).unwrap());
+
+        let failed = "m_failed";
+        store
+            .append(
+                failed,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: failed.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::Mic,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                failed,
+                event_types::SOURCE_FAILED,
+                None,
+                None,
+                &SourceFailed {
+                    meeting_id: failed.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    reason: SourceFailureReason::HelperCrashed,
+                    lane: None,
+                    detail: None,
+                },
+            )
+            .unwrap();
+        assert!(
+            !store.reconcile_stopped_if_orphaned(failed).unwrap(),
+            "a failed capture must not be masked as a clean stop"
+        );
+    }
+
+    #[test]
+    fn reconcile_stops_a_capture_after_a_per_lane_failure() {
+        let store = EventStore::memory().unwrap();
+        let meeting = "m_lane_fail";
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::MicAndSystem,
+                },
+            )
+            .unwrap();
+        // System-audio lane failed, but the mic lane keeps the source
+        // "capturing" — NOT a whole-source failure, so a killed daemon still
+        // leaves it stuck started on boot. Reconcile must clear it.
+        store
+            .append(
+                meeting,
+                event_types::SOURCE_FAILED,
+                None,
+                None,
+                &SourceFailed {
+                    meeting_id: meeting.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    reason: SourceFailureReason::HelperCrashed,
+                    lane: Some(AudioLane::SystemAudio),
+                    detail: None,
+                },
+            )
+            .unwrap();
+        let before = store.projection(meeting).unwrap().source;
+        assert_ne!(before.status, SourceStatus::Failed);
+        assert!(before.started && !before.stopped && before.failure.is_some());
+
+        assert!(store.reconcile_stopped_if_orphaned(meeting).unwrap());
+        assert!(store.projection(meeting).unwrap().source.stopped);
+    }
+
+    #[test]
+    fn reconcile_orphaned_captures_skips_malformed_meetings_and_does_not_block() {
+        let store = EventStore::memory().unwrap();
+        let good = "m_good";
+        store
+            .append(
+                good,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &SourceStarted {
+                    meeting_id: good.to_string(),
+                    source: TranscriptSourceKind::LocalMac,
+                    mode: CaptureMode::Mic,
+                },
+            )
+            .unwrap();
+        // A malformed source.started payload — projecting this meeting errors.
+        let bad = "m_bad";
+        store
+            .append(
+                bad,
+                event_types::SOURCE_STARTED,
+                None,
+                None,
+                &serde_json::json!({ "garbage": true }),
+            )
+            .unwrap();
+        assert!(store.projection(bad).is_err());
+
+        // The bad meeting must neither block reconciliation of the good one nor
+        // abort the whole sweep (which on boot would brick the daemon).
+        let reconciled = store.reconcile_orphaned_captures().unwrap();
+        assert_eq!(reconciled, vec![good.to_string()]);
+        assert!(store.projection(good).unwrap().source.stopped);
+    }
+
+    #[test]
+    fn meeting_ids_lists_distinct_meetings() {
+        let store = EventStore::memory().unwrap();
+        for m in ["a", "b", "a"] {
+            store
+                .append(
+                    m,
+                    event_types::SOURCE_STARTED,
+                    None,
+                    None,
+                    &SourceStarted {
+                        meeting_id: m.to_string(),
+                        source: TranscriptSourceKind::LocalMac,
+                        mode: CaptureMode::Mic,
+                    },
+                )
+                .unwrap();
+        }
+        let mut ids = store.meeting_ids().unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]

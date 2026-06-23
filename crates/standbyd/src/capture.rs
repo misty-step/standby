@@ -159,11 +159,23 @@ pub fn stop_capture(state: &AppState, meeting_id: &str) -> Result<()> {
         .get(meeting_id)
         .copied();
     if let Some(pid) = pid {
+        // Graceful: the helper finalizes its transcribers and emits
+        // `source.stopped` before exiting.
         std::process::Command::new("kill")
             .arg("-TERM")
             .arg(pid.to_string())
             .status()
             .ok();
+    } else {
+        // No live helper in this daemon (e.g. the capture was orphaned by a
+        // prior daemon restart, whose in-memory pid map did not survive). Stop
+        // must never be a silent no-op: reconcile the ledger directly so the UI
+        // leaves the false "capturing" state.
+        state
+            .store
+            .lock()
+            .expect("store lock")
+            .reconcile_stopped_if_orphaned(meeting_id)?;
     }
     Ok(())
 }

@@ -98,6 +98,7 @@ async fn main() -> Result<()> {
     };
     spawn_worker_loop(db_path, job_rx);
     recover_queued_jobs(&state)?;
+    reconcile_orphaned_captures(&state)?;
 
     let app = api_router(state).fallback_service(ServeDir::new(ui_dist_path()));
     let addr: SocketAddr = std::env::var("STANDBY_ADDR")
@@ -513,6 +514,21 @@ fn scratch_root() -> PathBuf {
         Some(parent) if !parent.as_os_str().is_empty() => parent.join("jobs"),
         _ => default_scratch_root(),
     }
+}
+
+/// On boot the in-memory capture map is empty, so any meeting the ledger still
+/// shows as "capturing" was orphaned by a prior daemon exit. Reconcile each to
+/// `source.stopped` so the UI never opens on a false, unclearable "Stop capture"
+/// state.
+fn reconcile_orphaned_captures(state: &AppState) -> Result<()> {
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| anyhow::anyhow!("lock store for capture reconciliation"))?;
+    for meeting_id in store.reconcile_orphaned_captures()? {
+        info!("reconciled orphaned capture for meeting {meeting_id}");
+    }
+    Ok(())
 }
 
 fn recover_queued_jobs(state: &AppState) -> Result<()> {

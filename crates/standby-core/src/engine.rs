@@ -1,6 +1,7 @@
 use crate::{
-    EventStore, NoProposal, Proposal, ProposalKind, ProposalModelMetadata, ProposalStatus,
-    TranscriptEvidence, TranscriptSegment, WorkerKind, demo_segments, event_types, new_id,
+    EventStore, MeetingProjection, NoProposal, Proposal, ProposalKind, ProposalModelMetadata,
+    ProposalStatus, TranscriptEvidence, TranscriptSegment, WorkerKind, demo_segments, event_types,
+    new_id,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::blocking::Client;
@@ -259,6 +260,13 @@ impl ProposalAgent {
     ) -> Result<ModelProposalResponse> {
         match &self.provider {
             ProposalProvider::Recorded { fixture } => {
+                // Test-only seam: simulate a slow model call (while holding no
+                // store lock) so tests can prove ingestion stays non-blocking.
+                if let Ok(ms) = std::env::var("STANDBY_PROPOSAL_TEST_DELAY_MS") {
+                    if let Ok(ms) = ms.parse::<u64>() {
+                        std::thread::sleep(Duration::from_millis(ms));
+                    }
+                }
                 if let Some(path) = fixture {
                     return parse_model_response(
                         &fs::read_to_string(path)
@@ -357,12 +365,23 @@ pub fn propose_from_meeting_context(
 pub fn run_proposal_agent(
     store: &EventStore,
     meeting_id: &str,
-    mut run: ProposalAgentRun,
+    run: ProposalAgentRun,
 ) -> Result<ProposalAgentDecision> {
-    if run.max_proposals == 0 {
-        run.max_proposals = 1;
-    }
     let projection = store.projection(meeting_id)?;
+    let decision = proposal_decision(&projection, &run, meeting_id)?;
+    record_proposal_decision(store, meeting_id, &decision, &run)?;
+    Ok(decision)
+}
+
+/// Compute the proposal decision from a projection snapshot WITHOUT touching the
+/// store. The model call happens here, so a caller holding an external store
+/// lock can release it across this call (see standbyd's off-path automatic
+/// proposer) and keep transcript ingestion flowing.
+pub fn proposal_decision(
+    projection: &MeetingProjection,
+    run: &ProposalAgentRun,
+    meeting_id: &str,
+) -> Result<ProposalAgentDecision> {
     if let Some(debounce) = run.debounce {
         if !should_run_automatic_reasoner(projection.transcript.len(), debounce) {
             return Ok(ProposalAgentDecision {
@@ -372,15 +391,29 @@ pub fn run_proposal_agent(
         }
     }
     let agent = ProposalAgent::from_env();
-    let decision = agent.propose(ProposalAgentInput {
+    agent.propose(ProposalAgentInput {
         meeting_id,
         transcript: &projection.transcript,
         existing: &projection.proposals,
         operator_message: run.operator_message.as_deref(),
         transcript_spans: &run.transcript_spans,
-        max_proposals: run.max_proposals,
-    })?;
+        max_proposals: if run.max_proposals == 0 {
+            1
+        } else {
+            run.max_proposals
+        },
+    })
+}
 
+/// Persist a decision's created cards (and an honest no-proposal when the run
+/// records them). Separated from [`proposal_decision`] so the store lock is held
+/// only for the fast append, never across the model call.
+pub fn record_proposal_decision(
+    store: &EventStore,
+    meeting_id: &str,
+    decision: &ProposalAgentDecision,
+    run: &ProposalAgentRun,
+) -> Result<()> {
     for proposal in &decision.proposals {
         store.append(
             meeting_id,
@@ -401,7 +434,7 @@ pub fn run_proposal_agent(
             )?;
         }
     }
-    Ok(decision)
+    Ok(())
 }
 
 /// Debounced cadence for the automatic reasoner: fire at the 2-segment floor,
@@ -411,7 +444,7 @@ fn should_run_automatic_reasoner(segment_count: usize, debounce: usize) -> bool 
     segment_count >= 2 && (segment_count - 2) % debounce == 0
 }
 
-fn proposal_debounce_from_env() -> usize {
+pub fn proposal_debounce_from_env() -> usize {
     std::env::var("STANDBY_PROPOSAL_DEBOUNCE_SEGMENTS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())

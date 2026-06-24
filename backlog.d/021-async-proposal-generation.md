@@ -1,6 +1,8 @@
 # Move proposal generation off the capture-ingest critical path
 
-Priority: P1 · Status: ready · Estimate: M
+Priority: P1 · Status: in-progress · Estimate: M
+
+**Delivered (2026-06-24, branch `deliver/020-openrouter-provider`):** Core split into `proposal_decision` (the model call, no store mutation) + `record_proposal_decision` (the append); `capture.rs` `run_automatic_proposal` snapshots under the lock, releases it for the model call, re-locks only to append, and the reader loop spawns it via `spawn_blocking` with a one-in-flight-per-meeting guard. Proof: `capture::tests::automatic_proposal_releases_store_lock_during_model_call` (the store lock stays acquirable mid-call); `./scripts/verify.sh` green; live append-feed still accumulates cards. **Residual:** the real-helper end-to-end (reader keeps appending during a live model call) is proven by the lock unit test + structural review, not yet a live fake-helper run (`STANDBY_CAPTURE_HELPER`).
 
 ## Goal
 The live transcript never stalls while the proposal reasoner runs — proposal generation happens off the capture-ingest task, so finalized segments keep flowing during the (multi-second) model call.

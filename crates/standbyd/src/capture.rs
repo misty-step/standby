@@ -6,11 +6,14 @@
 use crate::AppState;
 use anyhow::{Context, Result};
 use standby_core::{
-    CaptureMode, HelperEvent, LocalMacAudioSource, Meeting, SourceFailed, SourceFailureReason,
-    TranscriptSourceKind, event_types,
+    CaptureMode, EventStore, HelperEvent, LocalMacAudioSource, Meeting, ProposalAgentRun,
+    SourceFailed, SourceFailureReason, TranscriptSourceKind, event_types,
+    proposal_debounce_from_env, proposal_decision, record_proposal_decision,
 };
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -45,6 +48,91 @@ mod tests {
             path.display()
         );
     }
+
+    #[test]
+    fn automatic_proposal_releases_store_lock_during_model_call() {
+        // 021: run_automatic_proposal must NOT hold the store lock across the
+        // model call, or transcript ingestion stalls. With a slow recorded
+        // "model call" in flight, the lock must stay acquirable.
+        use standby_core::{EventStore, HelperEvent, LocalMacAudioSource};
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        // SAFETY: process-local test env; this is the only proposal test here.
+        unsafe {
+            std::env::set_var("STANDBY_PROPOSAL_PROVIDER", "recorded");
+            std::env::set_var("STANDBY_PROPOSAL_DEBOUNCE_SEGMENTS", "1");
+            std::env::set_var("STANDBY_PROPOSAL_TEST_DELAY_MS", "1000");
+        }
+
+        let store = Arc::new(Mutex::new(EventStore::memory().expect("store")));
+        let meeting = "lock_test";
+        for line in [
+            r#"{"type":"source.started","mode":"mic+system","mic":true,"system":true}"#,
+            r#"{"type":"segment.final","lane":"system_audio","speaker":"remote_1","text":"We should research competitor pricing in Europe."}"#,
+            r#"{"type":"segment.final","lane":"system_audio","speaker":"remote_1","text":"And send finance the revised budget by Friday."}"#,
+        ] {
+            if let Some(event) = HelperEvent::parse_line(line) {
+                let guard = store.lock().unwrap();
+                LocalMacAudioSource::normalize(&guard, meeting, event).expect("normalize");
+            }
+        }
+
+        // Run the proposal off-path: it snapshots, then "calls the model" (sleeps
+        // 1s) holding NO lock, then appends.
+        let store_bg = store.clone();
+        let handle = std::thread::spawn(move || {
+            super::run_automatic_proposal(&store_bg, "lock_test").expect("propose");
+        });
+
+        // Once it is past the snapshot and inside the model call, the lock is free.
+        std::thread::sleep(Duration::from_millis(300));
+        let start = Instant::now();
+        assert!(
+            store.try_lock().is_ok(),
+            "store lock held during the model call — transcript ingestion would stall"
+        );
+        assert!(start.elapsed() < Duration::from_millis(100));
+
+        handle.join().expect("join");
+        assert!(
+            !store
+                .lock()
+                .unwrap()
+                .projection("lock_test")
+                .unwrap()
+                .proposals
+                .is_empty(),
+            "the card is recorded once the model call completes"
+        );
+
+        // SAFETY: restore env so other tests are unaffected.
+        unsafe {
+            std::env::remove_var("STANDBY_PROPOSAL_TEST_DELAY_MS");
+            std::env::remove_var("STANDBY_PROPOSAL_DEBOUNCE_SEGMENTS");
+        }
+    }
+}
+
+/// Generate a proposal OFF the capture-ingest path: snapshot the projection
+/// under the store lock, release the lock for the (multi-second) model call,
+/// then re-lock only to append the result. This is what keeps transcript
+/// ingestion flowing while the reasoner runs (backlog 021).
+fn run_automatic_proposal(store: &Arc<Mutex<EventStore>>, meeting_id: &str) -> Result<()> {
+    let run = ProposalAgentRun {
+        max_proposals: 1,
+        record_no_proposal: true,
+        debounce: Some(proposal_debounce_from_env()),
+        ..ProposalAgentRun::default()
+    };
+    let projection = {
+        let store = store.lock().expect("store lock");
+        store.projection(meeting_id)?
+    };
+    // The model call happens here with NO store lock held.
+    let decision = proposal_decision(&projection, &run, meeting_id)?;
+    let store = store.lock().expect("store lock");
+    record_proposal_decision(&store, meeting_id, &decision, &run)
 }
 
 /// Start local-Mac capture for a meeting. Records `meeting.started`, spawns the
@@ -101,13 +189,34 @@ pub async fn start_capture(state: AppState, meeting_id: String, mode: String) ->
     let meeting = meeting_id.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
+        // At most one in-flight proposal per meeting; the reader never waits on it.
+        let proposing = Arc::new(AtomicBool::new(false));
         while let Ok(Some(line)) = lines.next_line().await {
             let Some(event) = HelperEvent::parse_line(&line) else {
                 continue;
             };
-            let store = store.lock().expect("store lock");
-            if let Err(err) = LocalMacAudioSource::ingest(&store, &meeting, event) {
-                tracing::warn!("capture ingest error for {meeting}: {err}");
+            // Append the segment under the lock, then RELEASE it before any model
+            // call so the next helper line is read immediately.
+            let finalized = {
+                let store = store.lock().expect("store lock");
+                LocalMacAudioSource::normalize(&store, &meeting, event)
+            };
+            match finalized {
+                Ok(Some(_)) => {
+                    if !proposing.swap(true, Ordering::SeqCst) {
+                        let store = store.clone();
+                        let meeting = meeting.clone();
+                        let proposing = proposing.clone();
+                        tokio::task::spawn_blocking(move || {
+                            if let Err(err) = run_automatic_proposal(&store, &meeting) {
+                                tracing::warn!("proposal agent error for {meeting}: {err:#}");
+                            }
+                            proposing.store(false, Ordering::SeqCst);
+                        });
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => tracing::warn!("capture ingest error for {meeting}: {err}"),
             }
         }
         // Bound the reap so a helper that closes stdout but doesn't exit can't

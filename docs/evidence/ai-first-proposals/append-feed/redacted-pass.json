@@ -3,15 +3,15 @@
   "card_count": 2,
   "cards": [
     {
-      "title": "Send finance the revised Q3 budget with updated headcount numbers by Friday",
-      "confidence": 0.96,
+      "title": "Pull updated headcount and send revised Q3 budget to finance",
+      "confidence": 0.95,
       "provider": "openrouter",
       "model": "deepseek/deepseek-v4-pro",
       "evidence_count": 2
     },
     {
-      "title": "Competitive analysis of Acme pricing tiers in Europe",
-      "confidence": 0.92,
+      "title": "Acme European pricing benchmark",
+      "confidence": 0.95,
       "provider": "openrouter",
       "model": "deepseek/deepseek-v4-pro",
       "evidence_count": 2

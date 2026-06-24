@@ -5,7 +5,7 @@
   "transcript_segments": 4,
   "proposal_decisions": 1,
   "forced_delay_ms": 2500,
-  "segment_2_to_4_ms": 425,
-  "segment_2_to_first_decision_ms": 2502,
+  "segment_2_to_4_ms": 424,
+  "segment_2_to_first_decision_ms": 2509,
   "first_decision_type": "proposal.created"
 }

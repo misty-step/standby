@@ -2,49 +2,49 @@
   {
     "index": 0,
     "event_type": "meeting.started",
-    "created_at": "1782341090.654Z",
+    "created_at": "1782342167.791Z",
     "text": null
   },
   {
     "index": 1,
     "event_type": "transcript.source.started",
-    "created_at": "1782341090.658Z",
+    "created_at": "1782342167.796Z",
     "text": null
   },
   {
     "index": 2,
     "event_type": "transcript.segment.final",
-    "created_at": "1782341090.870Z",
+    "created_at": "1782342168.000Z",
     "text": "We need someone to research private meeting assistant tools before Friday."
   },
   {
     "index": 3,
     "event_type": "transcript.segment.final",
-    "created_at": "1782341091.079Z",
+    "created_at": "1782342168.213Z",
     "text": "Focus on local-first products and where Standby is different."
   },
   {
     "index": 4,
     "event_type": "transcript.segment.final",
-    "created_at": "1782341091.292Z",
+    "created_at": "1782342168.425Z",
     "text": "Also compare the approval and audit trail story against other tools."
   },
   {
     "index": 5,
     "event_type": "transcript.segment.final",
-    "created_at": "1782341091.504Z",
+    "created_at": "1782342168.637Z",
     "text": "End with a concise recommendation we can use in this meeting."
   },
   {
     "index": 6,
     "event_type": "transcript.source.stopped",
-    "created_at": "1782341091.710Z",
+    "created_at": "1782342168.843Z",
     "text": null
   },
   {
     "index": 7,
     "event_type": "proposal.created",
-    "created_at": "1782341093.581Z",
+    "created_at": "1782342170.722Z",
     "text": null
   }
 ]

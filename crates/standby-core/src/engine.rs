@@ -42,6 +42,9 @@ enum ProposalProvider {
         api_key: Option<String>,
         model: String,
     },
+    Invalid {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -112,10 +115,13 @@ impl ProposalAgent {
         // The real model is the default in production; tests default to the
         // deterministic recorded fixture so the suite never hits the network.
         // Override either with STANDBY_PROPOSAL_PROVIDER.
-        let provider = match std::env::var("STANDBY_PROPOSAL_PROVIDER")
-            .unwrap_or_else(|_| (if cfg!(test) { "recorded" } else { "openrouter" }).to_string())
-            .as_str()
-        {
+        let configured_provider = std::env::var("STANDBY_PROPOSAL_PROVIDER").ok();
+        let provider_name = configured_provider.as_deref().unwrap_or(if cfg!(test) {
+            "recorded"
+        } else {
+            "openrouter"
+        });
+        let provider = match provider_name {
             "openai" => ProposalProvider::OpenAi {
                 api_key: std::env::var("OPENAI_API_KEY").ok(),
                 model: std::env::var("STANDBY_OPENAI_PROPOSAL_MODEL")
@@ -126,10 +132,13 @@ impl ProposalAgent {
                     .ok()
                     .map(PathBuf::from),
             },
-            _ => ProposalProvider::OpenRouter {
+            "openrouter" => ProposalProvider::OpenRouter {
                 api_key: std::env::var("OPENROUTER_API_KEY").ok(),
                 model: std::env::var("STANDBY_OPENROUTER_PROPOSAL_MODEL")
                     .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_string()),
+            },
+            other => ProposalProvider::Invalid {
+                name: other.to_string(),
             },
         };
         Self {
@@ -282,10 +291,15 @@ impl ProposalAgent {
                 openai_response(api_key, model, context, input)
             }
             ProposalProvider::OpenRouter { api_key, model } => {
-                let api_key = api_key
-                    .as_deref()
-                    .ok_or_else(|| anyhow!("OPENROUTER_API_KEY is required for openrouter provider"))?;
+                let api_key = api_key.as_deref().ok_or_else(|| {
+                    anyhow!("OPENROUTER_API_KEY is required for openrouter provider")
+                })?;
                 openrouter_response(api_key, model, context, input)
+            }
+            ProposalProvider::Invalid { name } => {
+                bail!(
+                    "unsupported proposal provider {name}; expected recorded, openai, or openrouter"
+                )
             }
         }
     }
@@ -308,6 +322,12 @@ impl ProposalAgent {
                 provider: "openrouter".to_string(),
                 model: model.clone(),
                 mode: "chat_completions".to_string(),
+                reasoning_summary: None,
+            },
+            ProposalProvider::Invalid { name } => ProposalModelMetadata {
+                provider: "invalid".to_string(),
+                model: name.clone(),
+                mode: "unsupported_provider".to_string(),
                 reasoning_summary: None,
             },
         }
@@ -1143,6 +1163,40 @@ mod tests {
         );
         assert!(proposal.draft_prompt.contains("[s0] remote_1"));
         assert_eq!(proposal.evidence.len(), 2);
+    }
+
+    #[test]
+    fn unsupported_provider_returns_honest_no_proposal_without_fallback() {
+        let meeting_id = "m_bad_provider";
+        let transcript = vec![
+            final_seg(
+                meeting_id,
+                "s0",
+                "remote_1",
+                "Could someone research local-first meeting assistants?",
+            ),
+            final_seg(
+                meeting_id,
+                "s1",
+                "remote_2",
+                "Include competitors and gaps in the approval workflow.",
+            ),
+        ];
+        let agent = ProposalAgent {
+            provider: ProposalProvider::Invalid {
+                name: "opnrouter".to_string(),
+            },
+            confidence_floor: DEFAULT_CONFIDENCE_FLOOR,
+        };
+        let decision = agent
+            .propose(input(meeting_id, &transcript, &[]))
+            .expect("decision");
+
+        assert!(decision.proposals.is_empty());
+        let no_proposal = decision.no_proposal.expect("no proposal");
+        assert!(no_proposal.reason.contains("unsupported proposal provider"));
+        assert_eq!(no_proposal.model.provider, "invalid");
+        assert_eq!(no_proposal.model.mode, "unsupported_provider");
     }
 
     #[test]

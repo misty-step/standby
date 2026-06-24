@@ -32,5 +32,5 @@ The 60s HTTP timeout (set in `020`) reduces flaky timeouts but does not remove t
 
 - Added `scripts/fixtures/fake-capture-helper-async-proposal.sh`, a helper-shaped JSONL driver that emits four final transcript segments and `source.stopped`.
 - Added `scripts/verify-async-proposal-ingest.sh`, which starts `standbyd`, overrides `STANDBY_CAPTURE_HELPER`, forces `STANDBY_PROPOSAL_PROVIDER=recorded`, injects a 2500 ms provider delay, and grades raw event timestamps.
-- Evidence: `docs/evidence/qa-021-async-proposal-ingest/verdict.json` shows segment 2 -> segment 4 in 425 ms while segment 2 -> first proposal decision took 2502 ms.
+- Evidence: `docs/evidence/qa-021-async-proposal-ingest/verdict.json` shows segment 2 -> segment 4 in 424 ms while segment 2 -> first proposal decision took 2509 ms.
 - Gate: `./scripts/verify.sh` passed after the focused QA harness.

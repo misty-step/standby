@@ -862,7 +862,8 @@ mod tests {
                 meeting_title: None,
                 topic: None,
                 approved_by: "tester".to_string(),
-                transcript_spans: vec![],            },
+                transcript_spans: vec![],
+            },
             budget: JobBudget {
                 max_minutes: 1,
                 max_cost_usd: None,

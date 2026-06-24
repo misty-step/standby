@@ -81,7 +81,7 @@ node -e '
     console.error("FAIL: proposal did not record model-native provenance");
     process.exit(27)
   }
-  if(proposal.model.provider!=="recorded-model" && proposal.model.provider!=="openai"){
+  if(!["recorded-model","openai","openrouter"].includes(proposal.model.provider)){
     console.error("FAIL: unexpected proposal provider", proposal.model.provider);
     process.exit(28)
   }

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QA 021 Async Proposal Ingest Plan</title>
+  <style>
+    body { margin: 0; font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #151515; background: #f6f5f0; }
+    main { max-width: 960px; margin: 0 auto; padding: 40px 28px 56px; }
+    h1 { font-size: 34px; line-height: 1.05; margin: 0 0 12px; letter-spacing: 0; }
+    h2 { font-size: 18px; margin: 30px 0 10px; }
+    p { margin: 0 0 12px; }
+    .panel { border: 1px solid #202020; background: #fffdf7; padding: 18px; border-radius: 4px; box-shadow: 4px 4px 0 #202020; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+    .item { border: 1px solid #b9b2a5; background: #ffffff; padding: 14px; border-radius: 4px; }
+    .label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #6a6258; margin-bottom: 4px; }
+    code { background: #ebe6dc; padding: 1px 5px; border-radius: 3px; }
+    ul { padding-left: 20px; margin: 8px 0 0; }
+    @media (max-width: 720px) { main { padding: 26px 18px 42px; } .grid { grid-template-columns: 1fr; } h1 { font-size: 28px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel">
+      <h1>QA 021: Prove Proposal Calls Do Not Stall Helper Ingest</h1>
+      <p><strong>Target outcome:</strong> a helper-driven run shows finalized transcript segments append while a deliberately slow proposal reasoner is in flight.</p>
+      <p><strong>Chosen design:</strong> create a repo-local shell verifier that starts <code>standbyd</code>, overrides <code>STANDBY_CAPTURE_HELPER</code> with a fake JSONL helper, forces the recorded provider to sleep, then grades event timing and projection output.</p>
+      <p><strong>Stop condition:</strong> the focused verifier and <code>./scripts/verify.sh</code> pass, with evidence under <code>docs/evidence/qa-021-async-proposal-ingest/</code>.</p>
+    </section>
+
+    <div class="grid">
+      <section class="item">
+        <span class="label">Claim</span>
+        During an automatic proposal model call, the capture stdout reader continues to append later finalized segments.
+      </section>
+      <section class="item">
+        <span class="label">Falsifier</span>
+        A slow reasoner creates a timestamp gap or leaves fewer than four transcript segments in the projection.
+      </section>
+      <section class="item">
+        <span class="label">Driver</span>
+        <code>scripts/verify-async-proposal-ingest.sh</code> with <code>STANDBY_PROPOSAL_TEST_DELAY_MS</code> and a fake helper.
+      </section>
+      <section class="item">
+        <span class="label">Grader</span>
+        Event timestamps show segment 3/4 append before the first proposal/no-proposal event and within the slow-call window.
+      </section>
+    </div>
+
+    <h2>Execution Notes</h2>
+    <ul>
+      <li>Use the recorded provider to avoid live model spend while still exercising the daemon capture path.</li>
+      <li>Keep the fake helper in <code>scripts/fixtures/</code> so future agents can replay the proof.</li>
+      <li>Do not weaken existing gates; rerun the canonical gate after the focused verifier.</li>
+      <li>If the focused verifier fails, stop and fix the async proposal path before backlog closeout.</li>
+    </ul>
+  </main>
+</body>
+</html>

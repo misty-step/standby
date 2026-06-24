@@ -14,6 +14,12 @@ fn replay(meeting: &str) -> EventStore {
 }
 
 fn replay_fixture(meeting: &str, fixture: &str) -> EventStore {
+    // The replay path runs the real proposal trigger (ingest -> from_env()), whose
+    // default is now the live OpenRouter model. Force the deterministic recorded
+    // provider so this offline wiring test never hits the network / spends money.
+    // SAFETY: every test in this binary wants the same value; nothing depends on
+    // it being unset.
+    unsafe { std::env::set_var("STANDBY_PROPOSAL_PROVIDER", "recorded") };
     let store = EventStore::memory().expect("memory store");
     for line in fixture.lines() {
         if let Some(event) = HelperEvent::parse_line(line) {

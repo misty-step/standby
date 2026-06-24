@@ -1,14 +1,14 @@
 {
   "meeting_id": "live-model",
   "proposal": {
-    "id": "prop_18baaa15729263a0_e10a_7",
-    "title": "Research local-first meeting assistant market and gaps",
-    "confidence": 0.93,
+    "id": "prop_18bbd41128d2e6f0_150e7_7",
+    "title": "Research existing local-first meeting assistants and identify gaps",
+    "confidence": 0.95,
     "model": {
-      "provider": "openai",
-      "model": "gpt-5.5",
-      "mode": "responses_api",
-      "reasoning_summary": "The request is explicit and low-noise: turn the provided customer question into a research task proposal about the local-first meeting assistant market."
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "mode": "chat_completions",
+      "reasoning_summary": "The operator explicitly requested a research task proposal from the context, and the transcript provides a customer question about local-first meeting assistants, making a research task appropriate."
     },
     "evidence_count": 1
   },

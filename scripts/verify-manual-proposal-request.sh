@@ -6,6 +6,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Deterministic proof: use the recorded proposal provider unless overridden.
+export STANDBY_PROPOSAL_PROVIDER="${STANDBY_PROPOSAL_PROVIDER:-recorded}"
+
 EVIDENCE="${STANDBY_EVIDENCE_DIR:-docs/evidence/operator-action-control}"
 mkdir -p "$EVIDENCE"
 export EVIDENCE
@@ -78,7 +81,7 @@ node -e '
     console.error("FAIL: proposal did not record model-native provenance");
     process.exit(27)
   }
-  if(proposal.model.provider!=="recorded-model" && proposal.model.provider!=="openai"){
+  if(!["recorded-model","openai","openrouter"].includes(proposal.model.provider)){
     console.error("FAIL: unexpected proposal provider", proposal.model.provider);
     process.exit(28)
   }

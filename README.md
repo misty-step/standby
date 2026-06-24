@@ -24,11 +24,21 @@ server-owned approval endpoint.
   proposal-agent output, and runs workers. `standbyd` (axum) owns routes, the
   SQLite ledger, capture supervision, and an out-of-request worker queue.
 - **AI-first proposals.** Automatic transcript windows and Ask Standby requests
-  share a typed `ProposalAgent` path. CI uses recorded model responses; dogfood
-  can opt into OpenAI Responses with `STANDBY_PROPOSAL_PROVIDER=openai`,
-  `STANDBY_OPENAI_PROPOSAL_MODEL`, and `OPENAI_API_KEY`. Model output only
+  share a typed `ProposalAgent` path that runs a real model by **default** —
+  OpenRouter chat completions (`OPENROUTER_API_KEY`,
+  `STANDBY_OPENROUTER_PROPOSAL_MODEL`, default `deepseek/deepseek-v4-pro`), with
+  `STANDBY_PROPOSAL_PROVIDER=openai` or `=recorded` as alternates. Tests and the
+  deterministic gate pin the recorded fixture; the live model is proven by
+  `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh`. Model output only
   suggests cards; Rust validates schema, evidence spans, dedupe, events, and
   approval policy.
+- **Append-only suggestion feed.** Automatic cards accrue like the transcript:
+  a debounced reasoner (`STANDBY_PROPOSAL_DEBOUNCE_SEGMENTS`, default 3) appends
+  at most one new card per cadence as the conversation shifts, and an open card
+  no longer suppresses the next one. Cards never mutate or retire — older ones
+  scroll down, newest on top. The reasoner sees recent card titles and declines
+  near-duplicates (dedup-by-omission). Proven live by `STANDBY_LIVE_MODEL=1
+  scripts/verify-live-append-feed.sh`.
 - **Ask Standby.** The operator can post an explicit proposal request to
   `POST /api/meetings/{meeting_id}/proposal-requests`. Standby records
   `proposal_request.created`, combines the message with recent finalized
@@ -96,7 +106,8 @@ uses a fake `opencode` executable in `PATH`; product code still launches
 | `scripts/verify-ai-execution-security.sh` | auth, origin, server-bound actor, network consent, redaction |
 | `scripts/verify-opencode-worker.sh` | default OpenCode dispatch, private file transport, no fallback, visible receipts |
 | `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
-| `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenAI proposal-provider smoke |
+| `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenRouter proposal-provider smoke |
+| `STANDBY_LIVE_MODEL=1 scripts/verify-live-append-feed.sh` | gated live proof that cards accumulate on topic shift |
 | `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |
 
 ## Red lines

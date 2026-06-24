@@ -1,0 +1,20 @@
+{
+  "meeting_id": "append-feed",
+  "card_count": 2,
+  "cards": [
+    {
+      "title": "Pull updated headcount and send revised Q3 budget to finance",
+      "confidence": 0.95,
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "evidence_count": 2
+    },
+    {
+      "title": "Acme European pricing benchmark",
+      "confidence": 0.95,
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "evidence_count": 2
+    }
+  ]
+}

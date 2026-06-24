@@ -1,15 +1,17 @@
-# Build the real, dynamic proposal agent (OpenRouter cascade + card ledger)
+# Build the real, dynamic proposal agent (OpenRouter cascade + append-only card feed)
 
-Priority: P0 · Status: ready · Estimate: L
+Priority: P0 · Status: verification · Estimate: L
 
 Shaped: `docs/shape/dynamic-proposal-agent.html` (2026-06-23) — design locked, oracle executable, ready for `/deliver`. Pairs with `011` (the eval is its proof loop).
 
+**Progress (2026-06-23):** Steps 1–3 delivered + live-verified on branch `deliver/020-openrouter-provider`. Step 1: real OpenRouter `deepseek/deepseek-v4-pro` is the default provider (`c67c336`). Steps 2–3 (append-only feed): the open-proposal gate is removed, a debounced reasoner (`STANDBY_PROPOSAL_DEBOUNCE_SEGMENTS`, default 3) appends <=1 new card per cadence, dedup-by-omission (the reasoner sees recent card titles), a proactive ambient-copilot prompt (the old prompt was too conservative and declined everything automatic), and a newest-first transcript-like UI feed. Live proof (`scripts/verify-live-append-feed.sh`): a budget->market-research pivot accumulates TWO distinct evidence-cited cards — "Send finance the revised Q3 budget…" (0.96) + "Competitive analysis of Acme pricing tiers in Europe" (0.92), both `provider=openrouter`. `./scripts/verify.sh` green. **Implementation residual closed in `021`:** proposal generation is now off the capture-ingest path; `scripts/verify-async-proposal-ingest.sh` proves helper stdout kept appending while a 2500 ms recorded-provider call was in flight. Remaining proof before broader proposal-quality claims: `011` held-out eval.
+
 ## Goal
-Proposal cards reflect what's actually being discussed and update/retire as the conversation shifts — produced by a real OpenRouter model by default (never a stub), with reliable structured output and honest failure.
+Proposal cards reflect what's actually being discussed and accumulate as the conversation shifts — new cards append and older ones push down like the transcript (never auto-removed) — produced by a real OpenRouter model by default (never a stub), with reliable structured output and honest failure.
 
 ## Oracle
 - [ ] With `OPENROUTER_API_KEY` set and no provider override, a fresh meeting produces a card whose content reflects the real transcript (projection provider = `openrouter`, not `recorded-model`).
-- [ ] A topic pivot in the `011` corpus yields a `retire`/`update` op so the open card tracks the pivot; a content-blind output fails the eval.
+- [ ] A topic pivot in the `011` corpus APPENDS a new card tracking the pivot while the prior card stays in the feed (cards never auto-remove); a content-blind output fails the eval.
 - [ ] A malformed/contractless model response → exactly one retry → honest `no_proposal("model_provider_error")`; never a keyword card.
 - [ ] `./scripts/verify.sh` green; `verify-model-proposals.sh` heuristic-symbol grep green; old ledgers (only `proposal.created`) still project.
 - [ ] Per-meeting model spend under a configured ceiling (debounce/sliding-window honored).
@@ -24,4 +26,4 @@ Build **step 1 (real provider default) first** — the no-regret unblock so the 
 
 **Hard constraint (user):** no stubs/placeholders/silent fallbacks; the real path is the default and must work the first time. `Recorded` becomes test/fixture-only.
 
-**Critic (2026-06-23):** fresh-context review of the packet returned *fix-spec-then-deliver*; 3 blockers closed in the spec — (1) approve/ignore must read `proposal.updated` (else it dispatches a stale card the operator didn't approve); (2) approved-card immutability enforced in the *fold*, not the prompt; (3) closed card-id contract (inject open-card ids; reject unknown ids) + a deterministic post-parse op-coherence validator. Residual risk: strict-mode schema variance across open models — the validator is the backstop, 011 confirms. Re-run a critic on the diff at deliver time.
+**Critic (2026-06-23):** fresh-context review of the packet returned *fix-spec-then-deliver* with 3 blockers about the mutable add/update/retire ledger (stale dispatch, approved-card clobber, hallucinated ids). The operator's 2026-06-23 product correction — cards are an **append-only feed** (never mutate/retire; they push down like the transcript) — moots all three: no update, no retire, no card-id round-trip. Residual risk now: dedup-by-omission quality + removing the open-proposal gate without reintroducing per-segment spam (both measured by 011). Re-run a critic on the diff at deliver time.

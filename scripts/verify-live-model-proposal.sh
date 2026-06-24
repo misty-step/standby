@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opt-in live provider smoke for the proposal agent. It never runs in the
-# default gate; set STANDBY_LIVE_MODEL=1 and OPENAI_API_KEY to spend a model call.
+# default gate; set STANDBY_LIVE_MODEL=1 and OPENROUTER_API_KEY to spend a model call.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -10,8 +10,8 @@ if [ "${STANDBY_LIVE_MODEL:-}" != "1" ]; then
   exit 0
 fi
 
-if [ -z "${OPENAI_API_KEY:-}" ]; then
-  echo "verify-live-model-proposal: OPENAI_API_KEY is required when STANDBY_LIVE_MODEL=1" >&2
+if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+  echo "verify-live-model-proposal: OPENROUTER_API_KEY is required when STANDBY_LIVE_MODEL=1" >&2
   exit 2
 fi
 
@@ -25,8 +25,8 @@ DB="$(mktemp -t standby-live-model.XXXXXX).db"
 JOBS="$(mktemp -d -t standby-live-model-jobs.XXXXXX)"
 ADDR="127.0.0.1:4328"
 export STANDBY_DB="$DB" STANDBY_ADDR="$ADDR" STANDBY_JOBS_DIR="$JOBS"
-export STANDBY_ENABLE_SEED=1 STANDBY_PROPOSAL_PROVIDER=openai
-export STANDBY_OPENAI_PROPOSAL_MODEL="${STANDBY_OPENAI_PROPOSAL_MODEL:-gpt-5.5}"
+export STANDBY_ENABLE_SEED=1 STANDBY_PROPOSAL_PROVIDER="${STANDBY_PROPOSAL_PROVIDER:-openrouter}"
+export STANDBY_OPENROUTER_PROPOSAL_MODEL="${STANDBY_OPENROUTER_PROPOSAL_MODEL:-deepseek/deepseek-v4-pro}"
 export STANDBY_OPERATOR_TOKEN="${STANDBY_OPERATOR_TOKEN:-standby-verify-token}"
 
 cargo run -p standbyd >/tmp/standby-live-model-proposal.log 2>&1 &
@@ -67,8 +67,8 @@ if (!proposal) {
   console.error(JSON.stringify({ no_proposals: p.no_proposals, events: p.events?.map((e) => e.event_type) }, null, 2));
   process.exit(3);
 }
-if (!proposal.model || proposal.model.provider !== "openai") {
-  console.error("FAIL: proposal did not record openai model provenance");
+if (!proposal.model || proposal.model.provider !== "openrouter") {
+  console.error("FAIL: proposal did not record openrouter model provenance");
   process.exit(4);
 }
 if (!proposal.evidence.length) {

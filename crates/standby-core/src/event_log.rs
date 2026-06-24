@@ -1,9 +1,8 @@
 use crate::JobStatus;
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
-    MeetingEvent, MeetingProjection, NoProposal, Proposal, ProposalRequest,
-    SourceFailed, SourceFailure, SourceStarted, SourceState, SourceStatus, SourceStopped,
-    TranscriptSegment,
+    MeetingEvent, MeetingProjection, NoProposal, Proposal, ProposalRequest, SourceFailed,
+    SourceFailure, SourceStarted, SourceState, SourceStatus, SourceStopped, TranscriptSegment,
     TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
 };
 use anyhow::{Context, Result};
@@ -951,8 +950,7 @@ mod tests {
     fn legacy_consent_required_failure_reason_still_decodes() {
         // An OMP-era ledger can carry agent_job.failed with this retired reason;
         // deleting the variant would make projection() fail to load that meeting.
-        let reason: crate::JobFailureReason =
-            serde_json::from_str("\"consent_required\"").unwrap();
+        let reason: crate::JobFailureReason = serde_json::from_str("\"consent_required\"").unwrap();
         assert_eq!(reason, crate::JobFailureReason::ConsentRequired);
     }
 
@@ -1170,7 +1168,8 @@ mod tests {
                 meeting_title: None,
                 topic: None,
                 approved_by: "tester".to_string(),
-                transcript_spans: vec![],            },
+                transcript_spans: vec![],
+            },
             budget: JobBudget {
                 max_minutes: 1,
                 max_cost_usd: None,

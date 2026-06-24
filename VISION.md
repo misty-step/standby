@@ -6,7 +6,7 @@ worth proposing, lets you approve it, dispatches a sandboxed agent to do it, and
 keeps an append-only receipt of every step. The word that has to earn itself is
 *command*: Standby does not just remember the meeting, it acts inside it.
 
-Date: 2026-06-22 · Lifespan: long-lived product substrate, builder-dogfooded
+Date: 2026-06-24 · Lifespan: long-lived product substrate, builder-dogfooded
 first. Revise when live evidence contradicts a bet; do not churn it per backlog
 edit.
 
@@ -37,8 +37,14 @@ receipt for everything.
 ## Strategic bets
 
 - **Model-native cognition, not keyword heuristics.** Live suggestion quality
-  comes from realtime/speech/agent models behind a typed boundary — and that
-  quality is *measured against held-out evals*, not asserted.
+  comes from model APIs behind a typed boundary — currently an OpenRouter
+  cascade over local transcript windows, with realtime/voice-native cognition
+  only when it earns itself — and that quality is *measured against held-out
+  evals*, not asserted.
+- **Cards are an append-only suggestion feed.** The model may append a new,
+  distinct card as the meeting shifts, but it does not mutate, retire, approve,
+  or dispatch prior cards. Older suggestions stay inspectable like transcript
+  lines.
 - **Local-first authority.** Capture, transcription, the event ledger, approval,
   worker policy, and auditability stay local and deterministic.
 - **Explicit control.** The model suggests; the operator approves; the server
@@ -58,7 +64,9 @@ receipt for everything.
   (which permission, which provider) and never hang; nothing renders a fake
   "live."
 - **The model boundary is explicit.** Deterministic Rust owns policy,
-  persistence, approval, sandbox, redaction, and evals; the model only suggests.
+  persistence, approval, sandbox, redaction, provider selection, and evals; the
+  model only suggests, and provider/key/config failures are visible cards or
+  receipts, never silent fallback.
 - **Deep modules, small surfaces.** The event log is the single source of truth;
   state is a projection of events, not a side-channel.
 - **Quality is gated, not claimed.** Proposal usefulness and capture reliability
@@ -79,10 +87,11 @@ receipt for everything.
 ## What excellent looks like
 
 **Shipped (the plumbing).** Local mic + system-audio capture with on-device
-Apple Speech transcription; model-native proposals behind a typed agent boundary;
-deterministic, server-bound approval; a sandboxed OpenCode worker with receipts;
-an append-only SQLite ledger; honest UI states; distinct speaker tokens without
-fake names.
+Apple Speech transcription; real OpenRouter proposal generation by default
+behind a typed agent boundary; an append-only, newest-first suggestion feed with
+debounced off-path reasoning; deterministic, server-bound approval; a sandboxed
+OpenCode worker with receipts; an append-only SQLite ledger; honest UI states;
+distinct speaker tokens without fake names.
 
 **Next 6–12 months.** A solo operator joins a real Meet/Teams call → sees
 speaker-aware transcript context for their own voice *and* remote participants →
@@ -93,6 +102,7 @@ still open from the last one. Proven by replay fixtures, proposal-quality evals
 with confidence intervals, capture-reliability gates, worker-sandbox tests, and
 gated live dogfood — not by green unit tests alone.
 
-**Beyond.** Realtime/voice-native cognition; provider diarization adapters behind
-the normalized attribution seam; the surface that reliably turns a conversation
-into started, tracked, and accountable work.
+**Beyond.** Voice-native cognition if it beats the transcript-window cascade on
+measured quality, latency, and cost; provider diarization adapters behind the
+normalized attribution seam; the surface that reliably turns a conversation into
+started, tracked, and accountable work.

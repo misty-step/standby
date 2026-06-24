@@ -412,6 +412,8 @@ async fn create_proposal_request(
             max_proposals: proposal_request.max_proposals,
             parent_event_id: Some(request_event.id),
             record_no_proposal: true,
+            // Operator explicitly asked — never debounce a direct request.
+            debounce: None,
         },
     )?;
 

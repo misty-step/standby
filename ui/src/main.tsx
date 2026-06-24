@@ -247,7 +247,10 @@ function App() {
 
   const source = projection?.source;
   const status: SourceStatus = source?.status ?? "idle";
-  const activeProposals = projection?.proposals.filter((proposal) => proposal.status === "proposed") ?? [];
+  // Newest-first feed, mirroring the transcript (TranscriptList): a new card
+  // enters at the top and older cards are pushed down. Cards never auto-remove.
+  const activeProposals =
+    projection?.proposals.filter((proposal) => proposal.status === "proposed").reverse() ?? [];
   const latestJob = projection?.jobs.at(-1) ?? null;
   const latestArtifact = projection?.artifacts.at(-1) ?? null;
   const latestNoProposal = projection?.no_proposals.at(-1) ?? null;
@@ -1260,8 +1263,6 @@ function workerLabel(worker: string): string {
 
 function humanReason(reason: string): string {
   switch (reason) {
-    case "open_proposal_exists":
-      return "there is already a pending proposal";
     case "no_transcript_or_operator_context":
       return "there was no transcript or operator context";
     case "insufficient_context_for_automatic_card":

@@ -32,6 +32,13 @@ server-owned approval endpoint.
   `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh`. Model output only
   suggests cards; Rust validates schema, evidence spans, dedupe, events, and
   approval policy.
+- **Append-only suggestion feed.** Automatic cards accrue like the transcript:
+  a debounced reasoner (`STANDBY_PROPOSAL_DEBOUNCE_SEGMENTS`, default 3) appends
+  at most one new card per cadence as the conversation shifts, and an open card
+  no longer suppresses the next one. Cards never mutate or retire — older ones
+  scroll down, newest on top. The reasoner sees recent card titles and declines
+  near-duplicates (dedup-by-omission). Proven live by `STANDBY_LIVE_MODEL=1
+  scripts/verify-live-append-feed.sh`.
 - **Ask Standby.** The operator can post an explicit proposal request to
   `POST /api/meetings/{meeting_id}/proposal-requests`. Standby records
   `proposal_request.created`, combines the message with recent finalized
@@ -100,6 +107,7 @@ uses a fake `opencode` executable in `PATH`; product code still launches
 | `scripts/verify-opencode-worker.sh` | default OpenCode dispatch, private file transport, no fallback, visible receipts |
 | `scripts/verify-ui-states.sh` | honest UI states; normal route never auto-starts demo |
 | `STANDBY_LIVE_MODEL=1 scripts/verify-live-model-proposal.sh` | gated live OpenRouter proposal-provider smoke |
+| `STANDBY_LIVE_MODEL=1 scripts/verify-live-append-feed.sh` | gated live proof that cards accumulate on topic shift |
 | `STANDBY_LIVE_CAPTURE=1 scripts/verify-live-teams-local.sh` | gated full dogfood path over local capture |
 
 ## Red lines

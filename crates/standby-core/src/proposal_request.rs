@@ -1,5 +1,6 @@
 use crate::{
     ProposalContextWindow, ProposalRequest, TranscriptEvidence, TranscriptSegment, new_id,
+    proposal_context::select_final_transcript_segments,
 };
 
 const REQUEST_CONTEXT_RECENT_LIMIT: usize = 8;
@@ -35,19 +36,12 @@ impl ProposalRequestEngine {
         transcript: &[TranscriptSegment],
         context_window: ProposalContextWindow,
     ) -> Vec<TranscriptEvidence> {
-        let final_segments: Vec<&TranscriptSegment> = transcript
-            .iter()
-            .filter(|segment| segment.is_final)
-            .collect();
-        let start = match context_window {
-            ProposalContextWindow::Full => 0,
-            ProposalContextWindow::Recent => final_segments
-                .len()
-                .saturating_sub(REQUEST_CONTEXT_RECENT_LIMIT),
+        let recent_limit = match context_window {
+            ProposalContextWindow::Full => usize::MAX,
+            ProposalContextWindow::Recent => REQUEST_CONTEXT_RECENT_LIMIT,
         };
-        final_segments
+        select_final_transcript_segments(transcript, &[], recent_limit)
             .into_iter()
-            .skip(start)
             .map(Into::into)
             .collect()
     }

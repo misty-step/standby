@@ -2,6 +2,7 @@ pub mod domain;
 pub mod engine;
 pub mod event_log;
 pub mod proposal_request;
+mod proposal_context;
 pub mod transcript_source;
 pub mod worker;
 

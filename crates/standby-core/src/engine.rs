@@ -1,4 +1,5 @@
 use crate::{
+    proposal_context::select_final_transcript_segments,
     EventStore, MeetingProjection, NoProposal, Proposal, ProposalKind, ProposalModelMetadata,
     ProposalStatus, TranscriptEvidence, TranscriptSegment, WorkerKind, demo_segments, event_types,
     new_id,
@@ -336,26 +337,13 @@ impl ProposalAgent {
 
 impl<'a> ProposalContext<'a> {
     fn from_input(input: &ProposalAgentInput<'a>) -> Self {
-        let mut selected = Vec::new();
-        if !input.transcript_spans.is_empty() {
-            let requested: HashSet<&str> =
-                input.transcript_spans.iter().map(String::as_str).collect();
-            selected.extend(
-                input
-                    .transcript
-                    .iter()
-                    .filter(|segment| segment.is_final && requested.contains(segment.id.as_str())),
-            );
-        } else {
-            let final_segments: Vec<&TranscriptSegment> = input
-                .transcript
-                .iter()
-                .filter(|segment| segment.is_final)
-                .collect();
-            let start = final_segments.len().saturating_sub(DEFAULT_CONTEXT_LIMIT);
-            selected.extend(final_segments.into_iter().skip(start));
+        Self {
+            segments: select_final_transcript_segments(
+                input.transcript,
+                input.transcript_spans,
+                DEFAULT_CONTEXT_LIMIT,
+            ),
         }
-        Self { segments: selected }
     }
 
     fn span_ids(&self) -> Vec<String> {

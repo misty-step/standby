@@ -9,10 +9,10 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use standby_core::{
     AgentJobSpec, CaptureMode, DiarizationEvent, DiarizationProvider, EventStore, HelperEvent,
-    JobFailureReason, JobStatus, LocalMacAudioSource, Meeting, MeetingProjection, ProposalAgentRun,
-    ProposalContextWindow, ProposalRequestEngine, ProposalStatus, WorkerProfile, approve_proposal,
-    default_scratch_root, demo_meeting_segments, emit_job_failed, event_types,
-    propose_from_meeting_context, run_job, run_proposal_agent,
+    JobFailureReason, JobStatus, LocalMacAudioSource, Meeting, MeetingProjection, MeetingRenamed,
+    MeetingSummary, ProposalAgentRun, ProposalContextWindow, ProposalRequestEngine, ProposalStatus,
+    WorkerProfile, approve_proposal, default_scratch_root, demo_meeting_segments, emit_job_failed,
+    event_types, new_id, propose_from_meeting_context, run_job, run_proposal_agent,
 };
 use std::collections::HashMap;
 use std::io::Read;
@@ -76,6 +76,16 @@ struct ProposalRequestInput {
     max_proposals: Option<u8>,
 }
 
+#[derive(Debug, Deserialize)]
+struct CreateMeetingInput {
+    title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RenameMeetingInput {
+    title: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -115,6 +125,7 @@ async fn main() -> Result<()> {
 fn api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/meetings", get(list_meetings).post(create_meeting))
         .route("/api/meetings/{meeting_id}/demo", post(start_demo))
         .route(
             "/api/meetings/{meeting_id}/capture/start",
@@ -132,6 +143,7 @@ fn api_router(state: AppState) -> Router {
         .route("/api/operator-session", get(operator_session))
         .route("/api/meetings/{meeting_id}", get(meeting_projection))
         .route("/api/meetings/{meeting_id}/events", get(meeting_projection))
+        .route("/api/meetings/{meeting_id}/rename", post(rename_meeting))
         .route("/api/proposals/{proposal_id}/approve", post(approve))
         .route("/api/proposals/{proposal_id}/ignore", post(ignore))
         .layer(TraceLayer::new_for_http())
@@ -257,6 +269,68 @@ async fn start_demo(
     Ok(Json(store.projection(&meeting_id)?))
 }
 
+async fn list_meetings(State(state): State<AppState>) -> ApiResult<Json<Vec<MeetingSummary>>> {
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    Ok(Json(store.meeting_summaries()?))
+}
+
+async fn create_meeting(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateMeetingInput>,
+) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
+    let meeting_id = new_id("meeting");
+    let title =
+        clean_meeting_title(request.title.as_deref()).unwrap_or_else(|| "New meeting".to_string());
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    store.append(
+        &meeting_id,
+        event_types::MEETING_CREATED,
+        Some(&meeting_id),
+        None,
+        &Meeting {
+            id: meeting_id.clone(),
+            title: Some(title),
+            mode: None,
+        },
+    )?;
+    Ok(Json(store.projection(&meeting_id)?))
+}
+
+async fn rename_meeting(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(meeting_id): Path<String>,
+    Json(request): Json<RenameMeetingInput>,
+) -> ApiResult<Json<MeetingProjection>> {
+    let _operator = authorize_operator(&state, &headers)?;
+    let Some(title) = clean_meeting_title(Some(&request.title)) else {
+        return Err(ApiError::bad_request("meeting title is required"));
+    };
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal("lock store"))?;
+    store.append(
+        &meeting_id,
+        event_types::MEETING_RENAMED,
+        Some(&meeting_id),
+        None,
+        &MeetingRenamed {
+            id: meeting_id.clone(),
+            title,
+        },
+    )?;
+    Ok(Json(store.projection(&meeting_id)?))
+}
+
 async fn meeting_projection(
     State(state): State<AppState>,
     Path(meeting_id): Path<String>,
@@ -266,6 +340,14 @@ async fn meeting_projection(
         .lock()
         .map_err(|_| ApiError::internal("lock store"))?;
     Ok(Json(store.projection(&meeting_id)?))
+}
+
+fn clean_meeting_title(value: Option<&str>) -> Option<String> {
+    let title = value?.trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some(title.chars().take(120).collect())
 }
 
 #[derive(Debug, Deserialize)]

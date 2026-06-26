@@ -1,9 +1,10 @@
 use crate::JobStatus;
 use crate::{
     AUDIO_ACTIVE_RMS, AgentJobSpec, Artifact, AudioDropped, AudioLane, AudioLevel, Meeting,
-    MeetingEvent, MeetingProjection, NoProposal, Proposal, ProposalRequest, SourceFailed,
-    SourceFailure, SourceStarted, SourceState, SourceStatus, SourceStopped, TranscriptSegment,
-    TranscriptSourceKind, event_types, new_id, now_rfc3339ish,
+    MeetingEvent, MeetingProjection, MeetingRenamed, MeetingSummary, NoProposal, Proposal,
+    ProposalRequest, ProposalStatus, SourceFailed, SourceFailure, SourceStarted, SourceState,
+    SourceStatus, SourceStopped, TranscriptSegment, TranscriptSourceKind, event_types, new_id,
+    now_rfc3339ish,
 };
 use anyhow::{Context, Result};
 use rusqlite::types::Type;
@@ -114,6 +115,15 @@ impl EventStore {
 
         for event in &events {
             match event.event_type.as_str() {
+                event_types::MEETING_CREATED => {
+                    let meeting: Meeting = decode(&event.payload_json)?;
+                    if meeting.title.is_some() {
+                        title = meeting.title;
+                    }
+                    if let Some(mode) = meeting.mode {
+                        source.mode = Some(mode);
+                    }
+                }
                 event_types::MEETING_STARTED => {
                     let meeting: Meeting = decode(&event.payload_json)?;
                     if meeting.title.is_some() {
@@ -122,6 +132,10 @@ impl EventStore {
                     if let Some(mode) = meeting.mode {
                         source.mode = Some(mode);
                     }
+                }
+                event_types::MEETING_RENAMED => {
+                    let renamed: MeetingRenamed = decode(&event.payload_json)?;
+                    title = Some(renamed.title);
                 }
                 event_types::SOURCE_STARTED => {
                     let started: SourceStarted = decode(&event.payload_json)?;
@@ -268,6 +282,22 @@ impl EventStore {
         Ok(ids)
     }
 
+    pub fn meeting_summaries(&self) -> Result<Vec<MeetingSummary>> {
+        let mut summaries = Vec::new();
+        for meeting_id in self.meeting_ids()? {
+            let events = self.list_events(&meeting_id)?;
+            let projection = self.projection(&meeting_id)?;
+            summaries.push(summarize_meeting(&meeting_id, &events, projection));
+        }
+        summaries.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.title.cmp(&right.title))
+        });
+        Ok(summaries)
+    }
+
     /// Reconcile a capture the ledger shows as running but that has no live
     /// helper — after a daemon restart (the in-memory pid map starts empty) or a
     /// stop for a meeting with no live process. Appends `source.stopped` when the
@@ -408,6 +438,68 @@ impl EventStore {
     }
 }
 
+fn summarize_meeting(
+    meeting_id: &str,
+    events: &[MeetingEvent],
+    projection: MeetingProjection,
+) -> MeetingSummary {
+    let title = projection
+        .title
+        .clone()
+        .unwrap_or_else(|| meeting_id.to_string());
+    let latest_activity = latest_activity(&projection);
+    MeetingSummary {
+        id: meeting_id.to_string(),
+        title,
+        started_at: events.first().map(|event| event.created_at.clone()),
+        updated_at: events.last().map(|event| event.created_at.clone()),
+        source_status: projection.source.status.clone(),
+        transcript_count: projection.transcript.len(),
+        question_count: projection.proposal_requests.len(),
+        open_suggestion_count: projection
+            .proposals
+            .iter()
+            .filter(|proposal| proposal.status == ProposalStatus::Proposed)
+            .count(),
+        running_job_count: projection
+            .jobs
+            .iter()
+            .filter(|job| matches!(job.status, JobStatus::Queued | JobStatus::Running))
+            .count(),
+        output_count: projection.artifacts.len(),
+        latest_activity,
+    }
+}
+
+fn latest_activity(projection: &MeetingProjection) -> Option<String> {
+    if let Some(artifact) = projection.artifacts.last() {
+        return Some(format!("Output ready: {}", artifact.title));
+    }
+    if let Some(job) = projection.jobs.last() {
+        return Some(format!("{}: {}", job_status_label(&job.status), job.title));
+    }
+    if let Some(proposal) = projection.proposals.last() {
+        return Some(format!("Suggested: {}", proposal.title));
+    }
+    if let Some(request) = projection.proposal_requests.last() {
+        return Some(format!("Asked: {}", request.message));
+    }
+    projection
+        .transcript
+        .last()
+        .map(|segment| format!("Transcript: {}", segment.text))
+}
+
+fn job_status_label(status: &JobStatus) -> &'static str {
+    match status {
+        JobStatus::Queued => "Queued",
+        JobStatus::Running => "Running",
+        JobStatus::Completed => "Completed",
+        JobStatus::Failed => "Failed",
+        JobStatus::Canceled => "Canceled",
+    }
+}
+
 fn decode<T: DeserializeOwned>(value: &Value) -> Result<T> {
     serde_json::from_value(value.clone()).context("decode event payload")
 }
@@ -543,6 +635,56 @@ mod tests {
             is_final,
             confidence: None,
             source,
+        }
+    }
+
+    fn proposal(meeting: &str, id: &str, title: &str, status: ProposalStatus) -> Proposal {
+        Proposal {
+            id: id.to_string(),
+            meeting_id: meeting.to_string(),
+            kind: ProposalKind::Research,
+            title: title.to_string(),
+            rationale: "reason".to_string(),
+            draft_prompt: "prompt".to_string(),
+            evidence: vec![],
+            suggested_worker: WorkerKind::ResearchAgent,
+            confidence: 0.8,
+            status,
+            model: None,
+        }
+    }
+
+    fn summary_job(meeting: &str, id: &str, title: &str, status: JobStatus) -> AgentJobSpec {
+        AgentJobSpec {
+            id: id.to_string(),
+            meeting_id: meeting.to_string(),
+            proposal_id: None,
+            worker: WorkerKind::ResearchAgent,
+            title: title.to_string(),
+            prompt: "prompt".to_string(),
+            context: JobContext {
+                meeting_title: None,
+                topic: None,
+                approved_by: "test".to_string(),
+                transcript_spans: vec![],
+            },
+            budget: JobBudget {
+                max_minutes: 5,
+                max_cost_usd: None,
+            },
+            deliverable: DeliverableSpec {
+                description: "deliverable".to_string(),
+            },
+            permissions: PermissionProfile {
+                can_mutate_external_systems: false,
+                requires_extra_approval: vec![],
+            },
+            status,
+            profile: Some("opencode".to_string()),
+            progress_note: None,
+            failure_reason: None,
+            error: None,
+            receipt_path: None,
         }
     }
 
@@ -975,6 +1117,129 @@ mod tests {
         let mut ids = store.meeting_ids().unwrap();
         ids.sort();
         assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn meeting_summaries_are_scoped_named_and_sorted_by_activity() {
+        let store = EventStore::memory().unwrap();
+        let first = "meeting_a";
+        let second = "meeting_b";
+        store
+            .append(
+                first,
+                event_types::MEETING_CREATED,
+                None,
+                None,
+                &crate::Meeting {
+                    id: first.to_string(),
+                    title: Some("Discovery sync".to_string()),
+                    mode: None,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                first,
+                event_types::SEGMENT_FINAL,
+                None,
+                None,
+                &seg(
+                    first,
+                    "a1",
+                    "We should compare local-first meeting assistants.",
+                    true,
+                    TranscriptSourceKind::LocalMac,
+                ),
+            )
+            .unwrap();
+        store
+            .append(
+                first,
+                event_types::PROPOSAL_CREATED,
+                None,
+                None,
+                &proposal(
+                    first,
+                    "prop_a",
+                    "Research local-first meeting assistants",
+                    ProposalStatus::Proposed,
+                ),
+            )
+            .unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        store
+            .append(
+                second,
+                event_types::MEETING_CREATED,
+                None,
+                None,
+                &crate::Meeting {
+                    id: second.to_string(),
+                    title: Some("Launch review".to_string()),
+                    mode: None,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                second,
+                event_types::JOB_REQUESTED,
+                None,
+                None,
+                &summary_job(second, "job_b", "Prepare launch notes", JobStatus::Running),
+            )
+            .unwrap();
+        store
+            .append(
+                second,
+                event_types::ARTIFACT_CREATED,
+                None,
+                None,
+                &Artifact {
+                    id: "artifact_b".to_string(),
+                    job_id: "job_b".to_string(),
+                    title: "Launch notes".to_string(),
+                    summary: "Drafted notes".to_string(),
+                    uri: Some("file:///tmp/launch.md".to_string()),
+                },
+            )
+            .unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        store
+            .append(
+                first,
+                event_types::MEETING_RENAMED,
+                None,
+                None,
+                &crate::MeetingRenamed {
+                    id: first.to_string(),
+                    title: "Customer discovery sync".to_string(),
+                },
+            )
+            .unwrap();
+
+        let summaries = store.meeting_summaries().unwrap();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].id, first);
+        assert_eq!(summaries[0].title, "Customer discovery sync");
+        assert_eq!(summaries[0].transcript_count, 1);
+        assert_eq!(summaries[0].open_suggestion_count, 1);
+        assert_eq!(summaries[0].running_job_count, 0);
+        assert_eq!(summaries[0].output_count, 0);
+        assert!(summaries[0].started_at.is_some());
+        assert!(summaries[0].updated_at >= summaries[1].updated_at);
+
+        let second_summary = summaries
+            .iter()
+            .find(|summary| summary.id == second)
+            .expect("second summary");
+        assert_eq!(second_summary.title, "Launch review");
+        assert_eq!(second_summary.transcript_count, 0);
+        assert_eq!(second_summary.open_suggestion_count, 0);
+        assert_eq!(second_summary.running_job_count, 1);
+        assert_eq!(second_summary.output_count, 1);
     }
 
     #[test]

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standby Progressive Agent Lab</title>
+  <link rel="stylesheet" href="./styles.css?v=14">
+</head>
+<body>
+  <main class="lab-shell">
+    <aside class="registry" aria-label="Variation registry">
+      <div class="registry-brand">
+        <span class="brand-mark">S</span>
+        <div>
+          <strong>Standby Lab</strong>
+          <span>10 progressive directions</span>
+        </div>
+      </div>
+      <div class="registry-meta">
+        <span id="roundLabel">round 5 - winner PD02</span>
+        <span id="positionLabel">1 / 20</span>
+      </div>
+      <nav id="variationList" class="variation-list" aria-label="Variations"></nav>
+    </aside>
+
+    <section class="stage">
+      <header class="stage-bar">
+        <div>
+          <strong id="variationTitle">Loading</strong>
+          <span id="variationNote">Preparing the frame.</span>
+        </div>
+        <div class="viewport-controls" aria-label="Viewport controls">
+          <button type="button" data-size="fit">Fit</button>
+          <button type="button" data-size="1440x900">1440</button>
+          <button type="button" data-size="1280x800">1280</button>
+          <button type="button" data-size="768x1024">Tablet</button>
+          <button type="button" data-size="390x844">Phone</button>
+        </div>
+      </header>
+      <div class="frame-wrap" id="frameWrap">
+        <iframe id="previewFrame" title="Standby redesign variation" src="./frame.html?v=14#PD02"></iframe>
+      </div>
+      <footer class="stage-footer">
+        <span id="viewportReadout">fit</span>
+        <button type="button" id="nextButton">Next variation</button>
+      </footer>
+    </section>
+  </main>
+  <script src="./app.js?v=14" defer></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Standby Progressive Agent Lab Contract</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #10151f;
+      --muted: #596374;
+      --line: #d8dee8;
+      --panel: #ffffff;
+      --soft: #edf1f6;
+      --accent: #245fd3;
+      --ok: #0f766e;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--soft); color: var(--ink); letter-spacing: 0; -webkit-font-smoothing: antialiased; }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    section { margin-top: 14px; }
+    .hero { background: var(--ink); color: white; border-radius: 8px; padding: 26px; display: grid; gap: 12px; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 34px; line-height: 1.05; text-wrap: balance; }
+    h2 { font-size: 16px; margin-bottom: 8px; text-transform: uppercase; }
+    p, li, td { color: var(--muted); line-height: 1.45; }
+    .hero p { color: #d7deea; max-width: 850px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    .wide { grid-column: span 2; }
+    ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+    code { background: #eef2f8; border: 1px solid #dce4ef; border-radius: 4px; padding: 1px 4px; color: #182338; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
+    th { color: #374151; font-size: 12px; text-transform: uppercase; }
+    .ok { box-shadow: inset 0 3px 0 var(--ok); }
+    .accent { box-shadow: inset 0 3px 0 var(--accent); }
+    @media (max-width: 900px) {
+      main { padding: 16px; }
+      .grid { grid-template-columns: 1fr; }
+      .wide { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>Standby Action Stream Direction</h1>
+      <p>Selected outcome: PD02 Action Stream is the locked default. Suggested work, running jobs, completed outputs, failures, and no-card events live in one readable feed. Ask Standby and meeting source sit in a compact companion surface.</p>
+    </section>
+
+    <section class="grid">
+      <article class="card accent">
+        <h2>Fixed</h2>
+        <p>Standby remains local-first, approval-gated, and receipt-backed. Suggested work and approved-work outputs are the primary product objects. Transcript remains source evidence, not a reading pane.</p>
+      </article>
+      <article class="card">
+        <h2>Feedback Applied</h2>
+        <p>AG01 was acceptable but too noisy. AG02 and the workboard/table directions were stronger because they used familiar forms and reduced visual push. PD02 wins because it keeps the feed readable without hiding approved work or outputs.</p>
+      </article>
+      <article class="card">
+        <h2>Dials</h2>
+        <p>Variance: moderate inside the progressive-disclosure family. Motion: near-still. Density: medium-high in detail views, low on the default surface.</p>
+      </article>
+      <article class="card wide">
+        <h2>Ten Directions</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Primary shape</th></tr></thead>
+          <tbody>
+            <tr><td>PD01</td><td>Meeting-aware chat with suggested work inline and quiet counts.</td></tr>
+            <tr><td>PD02</td><td>One readable action stream with chat as the companion.</td></tr>
+            <tr><td>PD03</td><td>One approval decision owning the screen.</td></tr>
+            <tr><td>PD04</td><td>Standard kanban available below a focused command area.</td></tr>
+            <tr><td>PD05</td><td>Completed output as the primary review object.</td></tr>
+            <tr><td>PD06</td><td>Assistant conversation where proposals appear inline.</td></tr>
+            <tr><td>PD07</td><td>Minimal room with one prompt, one active card, and indicator chips.</td></tr>
+            <tr><td>PD08</td><td>Readable output with a slim ledger for inspection.</td></tr>
+            <tr><td>PD09</td><td>Current running worker as the focused object.</td></tr>
+            <tr><td>PD10</td><td>Command surface with a small work/output shelf.</td></tr>
+          </tbody>
+        </table>
+      </article>
+      <article class="card">
+        <h2>Artifact</h2>
+        <p>Open <code>explorations/standby-redesign-20/index.html</code>. The registry now carries PD02 first as the selected direction, with the remaining variants retained as reference.</p>
+      </article>
+      <article class="card ok">
+        <h2>Verification</h2>
+        <ul>
+          <li><code>node --check</code> for the lab scripts.</li>
+          <li><code>npx impeccable detect</code> on lab and contract files.</li>
+          <li>10 desktop screenshots plus sampled 390px mobile screenshots in <code>docs/evidence/standby-redesign-20/</code>.</li>
+          <li><code>./scripts/verify.sh</code> before closeout.</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

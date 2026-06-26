@@ -187,7 +187,11 @@ grep -q "Completed" "$EVIDENCE/completed-desktop.html" || { echo "FAIL: complete
 grep -Eq "(Meeting follow-up task|Operator-requested task) result" "$EVIDENCE/completed-desktop.html" || { echo "FAIL: completed DOM missing result"; exit 12; }
 grep -q "Blocked by the sandbox" "$EVIDENCE/failed-desktop.html" || { echo "FAIL: failed DOM missing visible worker failure"; exit 13; }
 grep -q "opencode" "$EVIDENCE/failed-desktop.html" || { echo "FAIL: failed DOM missing worker command detail"; exit 18; }
-grep -q "mobile-section-tabs" "$EVIDENCE/proposal-mobile.html" || { echo "FAIL: mobile DOM missing section tabs"; exit 14; }
+grep -q "meeting-list" "$EVIDENCE/proposal-desktop.html" || { echo "FAIL: desktop DOM missing meeting rail"; exit 14; }
+grep -q "meeting-header" "$EVIDENCE/proposal-desktop.html" || { echo "FAIL: desktop DOM missing meeting header"; exit 19; }
+grep -q "Qa Proposal" "$EVIDENCE/proposal-desktop.html" || { echo "FAIL: meeting rail missing selected meeting title"; exit 20; }
+grep -q "meeting-view-tabs" "$EVIDENCE/proposal-mobile.html" || { echo "FAIL: mobile DOM missing meeting view tabs"; exit 21; }
+grep -q "Action stream" "$EVIDENCE/proposal-mobile.html" || { echo "FAIL: mobile DOM missing action stream tab"; exit 22; }
 grep -q "Agent jobs" "$EVIDENCE/jobs-desktop.html" || { echo "FAIL: jobs panel not captured"; exit 15; }
 grep -q "Capture lanes" "$EVIDENCE/audio-desktop.html" || { echo "FAIL: audio panel not captured"; exit 16; }
 
@@ -204,7 +208,7 @@ node -e '
   fs.writeFileSync(`${dir}/verdict.json`, JSON.stringify({
     status: "pass",
     checked_at: new Date().toISOString(),
-    claim: "Standby UI renders the main operational states across desktop and mobile without console or network errors.",
+    claim: "Standby UI renders first-class meeting shell states across desktop and mobile without console or network errors.",
     states: ["idle", "proposal", "notes", "audio", "running", "completed", "jobs", "failed"],
     reports,
     receipts: fs.readdirSync(dir).sort()

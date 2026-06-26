@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTML Plan: First-Class Meeting Objects</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    :root { --ae-accent: #1f5fbf; --ae-accent-dark: #8fb6ff; }
+    .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(92rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(25em, 0.72fr); gap: 3em; align-items: end; }
+    .grid-2, .grid-3, .grid-4, .grid-5 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.2em 1.35em; }
+    .wash { background: var(--ae-wash); }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1.4em 0; }
+    .phase { display: grid; grid-template-columns: 9em minmax(0, 1fr) minmax(15em, 0.7fr); gap: 1.3em; border-top: 1px solid var(--ae-line); padding-top: 1em; margin-top: 1em; }
+    .phase:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .table-wrap { overflow-x: auto; }
+    .rail-demo { display: grid; gap: 0.7em; }
+    .meeting-row { border: 1px solid var(--ae-line); border-radius: 0.45em; padding: 0.8em; background: var(--ae-surface); }
+    .meeting-row strong, .meeting-row span { display: block; }
+    .meeting-row span { color: var(--ae-muted); font-size: 0.9em; margin-top: 0.25em; }
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(100% - 2rem, 92rem); }
+      .hero, .grid-2, .grid-3, .grid-4, .grid-5, .phase { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="../context-packets/first-class-meeting-objects.md">PLAN / STANDBY</a>
+    <p class="ae-chrome">first-class meetings as the app shell</p>
+  </header>
+
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero" aria-label="Plan contract">
+        <div>
+          <p class="ae-chrome">CONTEXT PACKET / MEETING OBJECTS</p>
+          <h1 class="ae-strong">Make meetings the top-level bucket for every transcript, question, action, run, and output.</h1>
+          <p class="ae-lede">Chosen design: keep the append-only event ledger as truth, derive a meeting catalog from events, turn the sidebar into a meeting rail, and redesign the header around the selected meeting. Action Stream remains the default detail view inside each meeting.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">CHOSEN DESIGN</h2>
+          <p><strong>Catalog:</strong> event-derived <code>MeetingSummary</code>, not a new table.</p>
+          <p><strong>Shell:</strong> sidebar selects meetings; header names the selected meeting and owns status/capture controls.</p>
+          <p><strong>Detail:</strong> Action Stream, Ask Standby, source transcript, jobs, and outputs are scoped to the selected meeting.</p>
+          <div class="rule"></div>
+          <h2 class="ae-h">PROOF</h2>
+          <p><code>verify-meeting-catalog.sh</code>, updated visual QA evidence, focused summary unit tests, and full <code>./scripts/verify.sh</code>.</p>
+          <div class="rule"></div>
+          <p class="ae-dim">Premise: <code>sha256:0dbfecd0e931c205e5dbb799e6216cc56d1fb08500d15f2ee3f1e428588578c1</code></p>
+          <p class="ae-dim">Plan status: opened locally after authoring.</p>
+        </aside>
+      </section>
+
+      <section class="grid-5" aria-label="Executive contract" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">STANDARD</h2>
+          <p>Meeting identity must be visible before any question, approval, capture, or worker action.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">ACCEPTANCE</h2>
+          <p>Two seeded meetings show independent names, timestamps, counts, streams, source, jobs, and outputs.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">VERIFY</h2>
+          <p>API summary assertions, browser screenshots, DOM checks, and the repo gate.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">KEEP</h2>
+          <p>The Action Stream direction, deterministic approval, OpenCode-only worker, and URL deep links.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">STOP IF</h2>
+          <p>The design needs a mutable meetings table, breaks old <code>?meeting=</code> routes, or cannot prove no state bleed.</p>
+        </article>
+      </section>
+
+      <section class="grid-3" aria-label="Current state" style="margin-top: 1px">
+        <article class="cell">
+          <h2 class="ae-h">CURRENT STATE</h2>
+          <p>The server has meeting-scoped routes and <code>meeting_id</code> on events, but the UI reads one URL meeting ID and the sidebar is section navigation.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">CHANGE SHAPE</h2>
+          <p>Add a meeting list endpoint, creation/rename events, a meeting rail, and a selected-meeting header. Keep detail projections unchanged.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">NOT THIS SLICE</h2>
+          <p>No calendar import, attendee roster, global search, bulk archive, folders, or provider meeting identity.</p>
+        </article>
+      </section>
+
+      <section class="grid-2" aria-label="UI shape" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">SIDEBAR BECOMES MEETINGS</h2>
+          <div class="rail-demo" aria-label="Meeting rail sketch">
+            <div class="meeting-row"><strong>Customer discovery sync</strong><span>Today 9:42 AM &middot; 2 suggestions &middot; 1 running</span></div>
+            <div class="meeting-row"><strong>Design critique</strong><span>Today 8:15 AM &middot; 3 outputs</span></div>
+            <div class="meeting-row"><strong>Investor prep</strong><span>Yesterday 4:10 PM &middot; stopped</span></div>
+          </div>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">HEADER BECOMES SELECTED MEETING</h2>
+          <p>Title/name first, timestamp second, then status and capture controls. Quiet indicators expose Action Stream, outputs, source, and audio within that meeting.</p>
+          <p>Ask Standby requests, approvals, jobs, and output review all target the selected meeting ID.</p>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Execution plan" style="margin-top: 2em">
+        <h2 class="ae-h">EXECUTION PLAN</h2>
+        <div class="phase">
+          <strong class="ae-accent">1 model</strong>
+          <p>Add <code>MeetingSummary</code>, event-derived summaries, title/rename replay, and summary tests.</p>
+          <p class="ae-dim">Evidence: unit test with two meetings and no count bleed.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">2 API</strong>
+          <p>Add <code>GET /api/meetings</code>, <code>POST /api/meetings</code>, and rename route under operator auth.</p>
+          <p class="ae-dim">Evidence: request replay creates, lists, selects, and renames meetings.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">3 shell</strong>
+          <p>Replace sidebar section nav with meeting rail; redesign header around selected meeting; move section controls into the selected-meeting surface.</p>
+          <p class="ae-dim">Evidence: desktop/mobile screenshots and DOM assertions.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">4 gate</strong>
+          <p>Update visual QA, add catalog verifier, run full repo verification.</p>
+          <p class="ae-dim">Evidence: <code>docs/evidence/first-class-meetings/</code> and <code>./scripts/verify.sh</code>.</p>
+        </div>
+      </section>
+
+      <section class="grid-2" aria-label="Alternatives and review" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ALTERNATIVES</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>option</th><th>helps</th><th>fails</th><th>verdict</th></tr></thead>
+              <tbody>
+                <tr><td class="ae-item">URL-only meetings</td><td>tiny diff</td><td>hidden, not first-class</td><td>reject</td></tr>
+                <tr><td class="ae-item">new meetings table</td><td>fast CRUD</td><td>second source of truth</td><td>reject v1</td></tr>
+                <tr><td class="ae-item">event-derived catalog</td><td>fits ledger</td><td>summary parser work</td><td>choose</td></tr>
+                <tr><td class="ae-item">calendar import</td><td>real names</td><td>provider/auth before core UX</td><td>defer</td></tr>
+                <tr><td class="ae-item">global output dashboard</td><td>accountability later</td><td>brings noisy dashboard back</td><td>defer</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">CRITIC FOCUS</h2>
+          <p>Can the operator accidentally approve work into the wrong meeting?</p>
+          <p>Did the implementation create a second source of truth?</p>
+          <p>Can existing timestamp rows or old deep links break the new shell?</p>
+        </article>
+      </section>
+    </article>
+  </main>
+</div>
+</body>
+</html>

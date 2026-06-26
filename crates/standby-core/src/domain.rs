@@ -215,6 +215,14 @@ pub struct Meeting {
     pub mode: Option<CaptureMode>,
 }
 
+/// `meeting.renamed` payload. Titles are user-owned metadata and stay append-only
+/// so historical meeting state can be replayed without a side table.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MeetingRenamed {
+    pub id: String,
+    pub title: String,
+}
+
 /// `transcript.source.started` payload.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SourceStarted {
@@ -440,6 +448,21 @@ pub struct MeetingProjection {
     pub events: Vec<MeetingEvent>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MeetingSummary {
+    pub id: String,
+    pub title: String,
+    pub started_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub source_status: SourceStatus,
+    pub transcript_count: usize,
+    pub question_count: usize,
+    pub open_suggestion_count: usize,
+    pub running_job_count: usize,
+    pub output_count: usize,
+    pub latest_activity: Option<String>,
+}
+
 pub fn new_id(prefix: &str) -> String {
     // Globally unique across daemon restarts: the per-process counter resets to 1
     // on restart, so millisecond + counter alone could collide between two
@@ -464,7 +487,9 @@ pub fn now_rfc3339ish() -> String {
 /// Canonical event-type strings. Every producer (daemon, capture source, worker
 /// runner) and the projection use these so the taxonomy can't drift by typo.
 pub mod event_types {
+    pub const MEETING_CREATED: &str = "meeting.created";
     pub const MEETING_STARTED: &str = "meeting.started";
+    pub const MEETING_RENAMED: &str = "meeting.renamed";
     pub const SOURCE_STARTED: &str = "transcript.source.started";
     pub const SOURCE_FAILED: &str = "transcript.source.failed";
     pub const SOURCE_STOPPED: &str = "transcript.source.stopped";

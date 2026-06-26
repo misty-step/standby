@@ -8,7 +8,9 @@ import {
   FileText,
   Mic2,
   MicOff,
+  PencilLine,
   PlayCircle,
+  Plus,
   Search,
   Sparkles,
   Square,
@@ -40,6 +42,20 @@ type TranscriptSegment = {
   text: string;
   is_final: boolean;
   source: string;
+};
+
+type DisplayTranscriptSegment = TranscriptSegment & {
+  display_start_ms: number;
+  display_end_ms: number;
+};
+
+type TranscriptTurn = {
+  id: string;
+  speaker: string | null;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  segments: DisplayTranscriptSegment[];
 };
 
 type TranscriptEvidence = { segment_id: string; speaker: string | null; text: string };
@@ -129,8 +145,22 @@ type MeetingProjection = {
   artifacts: Artifact[];
 };
 
+type MeetingSummary = {
+  id: string;
+  title: string;
+  started_at: string | null;
+  updated_at: string | null;
+  source_status: SourceStatus;
+  transcript_count: number;
+  question_count: number;
+  open_suggestion_count: number;
+  running_job_count: number;
+  output_count: number;
+  latest_activity: string | null;
+};
+
 const params = new URLSearchParams(window.location.search);
-const meetingId = params.get("meeting") ?? "live";
+const initialMeetingId = params.get("meeting");
 const mode = params.get("mode") ?? "live";
 const isDemo = mode === "demo";
 const initialSection = readInitialSection(params.get("section"));
@@ -164,7 +194,8 @@ const FAILURE_TEXT: Record<string, string> = {
 
 const JOB_LABEL: Record<JobStatus, string> = {
   queued: "Queued",
-  running: "Running",  completed: "Completed",
+  running: "Running",
+  completed: "Completed",
   failed: "Failed",
   canceled: "Canceled",
 };
@@ -189,12 +220,17 @@ async function ensureOperatorSession(force = false): Promise<void> {
 }
 
 async function post(path: string): Promise<MeetingProjection> {
+  return postJson<MeetingProjection>(path);
+}
+
+async function postJson<T>(path: string, body?: unknown): Promise<T> {
   await ensureOperatorSession();
   const send = () =>
     fetch(path, {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
   let response = await send();
   if (response.status === 401) {
@@ -207,24 +243,46 @@ async function post(path: string): Promise<MeetingProjection> {
   return response.json();
 }
 
+async function fetchMeetings(): Promise<MeetingSummary[]> {
+  const response = await fetch("/api/meetings");
+  if (!response.ok) throw new Error(`meetings failed: ${response.status}`);
+  return response.json();
+}
+
+async function fetchProjection(meetingId: string): Promise<MeetingProjection> {
+  const response = await fetch(`/api/meetings/${meetingId}`);
+  if (!response.ok) throw new Error(`projection failed: ${response.status}`);
+  return response.json();
+}
+
 function App() {
+  const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(initialMeetingId);
   const [projection, setProjection] = useState<MeetingProjection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>(initialSection);
   const [transcriptQuery, setTranscriptQuery] = useState("");
 
-  async function refresh() {
-    const response = await fetch(`/api/meetings/${meetingId}`);
-    if (!response.ok) throw new Error(`projection failed: ${response.status}`);
-    setProjection(await response.json());
+  async function refresh(targetMeetingId = selectedMeetingId) {
+    const summaries = await fetchMeetings();
+    setMeetings(summaries);
+    const nextMeetingId = targetMeetingId ?? summaries[0]?.id ?? null;
+    if (!nextMeetingId) {
+      setSelectedMeetingId(null);
+      setProjection(null);
+      return;
+    }
+    setSelectedMeetingId(nextMeetingId);
+    setProjection(await fetchProjection(nextMeetingId));
   }
 
-  async function act(fn: () => Promise<MeetingProjection>) {
+  async function act(fn: () => Promise<MeetingProjection | null>) {
     setBusy(true);
     setError(null);
     try {
-      setProjection(await fn());
+      const nextProjection = await fn();
+      if (nextProjection) setProjection(nextProjection);
     } catch (err) {
       setError(err instanceof Error ? err.message : "request failed");
     } finally {
@@ -233,85 +291,224 @@ function App() {
   }
 
   useEffect(() => {
-    // The normal route never auto-starts demo. Demo is opt-in via ?mode=demo.
-    if (isDemo) {
-      act(() => post(`/api/meetings/${meetingId}/demo`));
-    } else {
-      refresh().catch((err) => setError(err instanceof Error ? err.message : "load failed"));
+    let canceled = false;
+    async function boot() {
+      setBusy(true);
+      setError(null);
+      try {
+        if (isDemo) {
+          const demoMeetingId = initialMeetingId ?? "demo";
+          const seeded = await post(`/api/meetings/${demoMeetingId}/demo`);
+          const summaries = await fetchMeetings();
+          if (canceled) return;
+          setSelectedMeetingId(demoMeetingId);
+          setProjection(seeded);
+          setMeetings(summaries);
+          writeMeetingUrl(demoMeetingId, initialSection, true);
+          return;
+        }
+        const summaries = await fetchMeetings();
+        const nextMeetingId = initialMeetingId ?? summaries[0]?.id ?? null;
+        const nextProjection = nextMeetingId ? await fetchProjection(nextMeetingId) : null;
+        if (canceled) return;
+        setMeetings(summaries);
+        setSelectedMeetingId(nextMeetingId);
+        setProjection(nextProjection);
+        if (nextMeetingId && !initialMeetingId) writeMeetingUrl(nextMeetingId, initialSection, false);
+      } catch (err) {
+        if (!canceled) setError(err instanceof Error ? err.message : "load failed");
+      } finally {
+        if (!canceled) setBusy(false);
+      }
     }
-    const interval = window.setInterval(() => {
-      refresh().catch(() => undefined);
-    }, 2000);
-    return () => window.clearInterval(interval);
+    boot();
+    return () => {
+      canceled = true;
+    };
   }, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      refresh(selectedMeetingId).catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [selectedMeetingId]);
+
+  const visibleMeetings = useMemo(() => {
+    const catalog = [...meetings];
+    if (selectedMeetingId && !catalog.some((meeting) => meeting.id === selectedMeetingId)) {
+      catalog.unshift(summaryFromProjection(projection, selectedMeetingId));
+    }
+    return catalog;
+  }, [meetings, projection, selectedMeetingId]);
+  const selectedSummary =
+    visibleMeetings.find((meeting) => meeting.id === selectedMeetingId) ?? null;
   const source = projection?.source;
   const status: SourceStatus = source?.status ?? "idle";
   // Newest-first feed, mirroring the transcript (TranscriptList): a new card
   // enters at the top and older cards are pushed down. Cards never auto-remove.
   const activeProposals =
     projection?.proposals.filter((proposal) => proposal.status === "proposed").reverse() ?? [];
-  const latestJob = projection?.jobs.at(-1) ?? null;
-  const latestArtifact = projection?.artifacts.at(-1) ?? null;
+  const jobs = projection?.jobs ?? [];
+  const artifacts = projection?.artifacts ?? [];
+  const latestJob = jobs.at(-1) ?? null;
+  const latestArtifact = artifacts.at(-1) ?? null;
   const latestNoProposal = projection?.no_proposals.at(-1) ?? null;
   const proposalCount = activeProposals.length;
-  const jobCount = projection?.jobs.length ?? 0;
+  const jobCount = jobs.length;
+  const artifactCount = artifacts.length;
   const capturing = status === "capturing" || status === "transcribing" || status === "no_mic_audio" || status === "no_system_audio";
+  const meetingTitle = displayMeetingTitle(
+    projection?.title ?? selectedSummary?.title ?? null,
+    selectedMeetingId,
+  );
+
+  function selectedOrThrow(): string {
+    if (!selectedMeetingId) throw new Error("select or create a meeting first");
+    return selectedMeetingId;
+  }
+
+  function changeSection(section: Section) {
+    setActiveSection(section);
+    if (selectedMeetingId) writeMeetingUrl(selectedMeetingId, section, isDemo && selectedMeetingId === "demo");
+  }
+
+  function selectMeeting(meetingId: string) {
+    act(async () => {
+      setSelectedMeetingId(meetingId);
+      setActiveSection("meeting");
+      writeMeetingUrl(meetingId, "meeting", false);
+      const nextProjection = await fetchProjection(meetingId);
+      setMeetings(await fetchMeetings());
+      return nextProjection;
+    });
+  }
+
+  function createMeeting() {
+    act(async () => {
+      const created = await postJson<MeetingProjection>("/api/meetings", {
+        title: defaultMeetingTitle(),
+      });
+      setSelectedMeetingId(created.meeting_id);
+      setActiveSection("meeting");
+      setTranscriptQuery("");
+      writeMeetingUrl(created.meeting_id, "meeting", false);
+      setMeetings(await fetchMeetings());
+      return created;
+    });
+  }
+
+  function renameMeeting(title: string) {
+    if (!selectedMeetingId) return;
+    act(async () => {
+      const renamed = await postJson<MeetingProjection>(`/api/meetings/${selectedMeetingId}/rename`, {
+        title,
+      });
+      setMeetings(await fetchMeetings());
+      return renamed;
+    });
+  }
 
   return (
     <div className="app-shell">
-      <Sidebar
-        status={status}
-        title={projection?.title ?? (isDemo ? "Demo meeting" : "Live meeting")}
-        activeSection={activeSection}
-        onSectionChange={setActiveSection}
-        proposalCount={proposalCount}
-        jobCount={jobCount}
+      <MeetingRail
+        meetings={visibleMeetings}
+        selectedMeetingId={selectedMeetingId}
+        busy={busy}
+        onCreateMeeting={createMeeting}
+        onSelectMeeting={selectMeeting}
       />
       <main className="workspace">
-        <TopBar status={status} title={projection?.title ?? (isDemo ? "Demo meeting" : "Live meeting")} />
-        <SourceBanner status={status} source={source ?? null} />
-        <MobileSectionTabs
+        <MeetingHeader
+          meetings={visibleMeetings}
+          selectedMeetingId={selectedMeetingId}
+          title={meetingTitle}
+          summary={selectedSummary}
+          status={status}
+          source={source ?? null}
           activeSection={activeSection}
-          onSectionChange={setActiveSection}
+          busy={busy}
+          capturing={capturing}
+          isDemo={isDemo}
           proposalCount={proposalCount}
           jobCount={jobCount}
+          artifactCount={artifactCount}
+          transcriptCount={projection?.transcript.length ?? selectedSummary?.transcript_count ?? 0}
+          onSectionChange={changeSection}
+          onSelectMeeting={selectMeeting}
+          onCreateMeeting={createMeeting}
+          onRenameMeeting={renameMeeting}
+          onStart={() => act(() => post(`/api/meetings/${selectedOrThrow()}/capture/start?mode=mic%2Bsystem`))}
+          onStop={() => act(() => post(`/api/meetings/${selectedOrThrow()}/capture/stop`))}
+          onDemo={() => act(() => post(`/api/meetings/${selectedMeetingId ?? "demo"}/demo`))}
         />
-        <section className="content-grid">
-          <section className="transcript-panel">
-            <CaptureControls
-              isDemo={isDemo}
-              capturing={capturing}
-              busy={busy}
-              transcriptQuery={transcriptQuery}
-              onTranscriptQueryChange={setTranscriptQuery}
-              onStart={() => act(() => post(`/api/meetings/${meetingId}/capture/start?mode=mic%2Bsystem`))}
-              onStop={() => act(() => post(`/api/meetings/${meetingId}/capture/stop`))}
-              onDemo={() => act(() => post(`/api/meetings/${meetingId}/demo`))}
-            />
-            {error ? <div className="failure-note">{error}</div> : null}
-            <TranscriptList
-              segments={projection?.transcript ?? []}
-              partial={projection?.partial ?? null}
-              status={status}
-              query={transcriptQuery}
-            />
-          </section>
-          <WorkPanel
-            section={activeSection}
+        {!selectedMeetingId ? (
+          <EmptyMeetingState busy={busy} onCreateMeeting={createMeeting} />
+        ) : activeSection === "meeting" ? (
+          <MeetingActionStream
             projection={projection}
             status={status}
-            source={source ?? null}
             activeProposals={activeProposals}
-            latestJob={latestJob}
-            latestArtifact={latestArtifact}
             latestNoProposal={latestNoProposal}
+            proposalCount={proposalCount}
+            jobCount={jobCount}
+            artifactCount={artifactCount}
             busy={busy}
-            onRequestProposal={(message) => act(() => requestProposal(message))}
+            error={error}
+            transcriptQuery={transcriptQuery}
+            onTranscriptQueryChange={setTranscriptQuery}
+            onRequestProposal={(message) => act(() => requestProposal(selectedOrThrow(), message))}
             onApprove={(proposal, prompt) => act(() => approveProposal(proposal, prompt))}
             onIgnore={(proposal) => act(() => post(`/api/proposals/${proposal.id}/ignore`))}
           />
-        </section>
+        ) : activeSection === "notes" ? (
+          <section className="content-grid secondary-grid">
+            <section className="transcript-panel">
+              <TranscriptSearchControls
+                transcriptQuery={transcriptQuery}
+                onTranscriptQueryChange={setTranscriptQuery}
+              />
+              {error ? <div className="failure-note">{error}</div> : null}
+              <TranscriptList
+                segments={projection?.transcript ?? []}
+                partial={projection?.partial ?? null}
+                status={status}
+                query={transcriptQuery}
+              />
+            </section>
+            <WorkPanel
+              section={activeSection}
+              projection={projection}
+              status={status}
+              source={source ?? null}
+              activeProposals={activeProposals}
+              latestJob={latestJob}
+              latestArtifact={latestArtifact}
+              latestNoProposal={latestNoProposal}
+              busy={busy}
+              onRequestProposal={(message) => act(() => requestProposal(selectedOrThrow(), message))}
+              onApprove={(proposal, prompt) => act(() => approveProposal(proposal, prompt))}
+              onIgnore={(proposal) => act(() => post(`/api/proposals/${proposal.id}/ignore`))}
+            />
+          </section>
+        ) : (
+          <section className="single-work-view">
+            <WorkPanel
+              section={activeSection}
+              projection={projection}
+              status={status}
+              source={source ?? null}
+              activeProposals={activeProposals}
+              latestJob={latestJob}
+              latestArtifact={latestArtifact}
+              latestNoProposal={latestNoProposal}
+              busy={busy}
+              onRequestProposal={(message) => act(() => requestProposal(selectedOrThrow(), message))}
+              onApprove={(proposal, prompt) => act(() => approveProposal(proposal, prompt))}
+              onIgnore={(proposal) => act(() => post(`/api/proposals/${proposal.id}/ignore`))}
+            />
+          </section>
+        )}
       </main>
     </div>
   );
@@ -329,7 +526,7 @@ async function approveProposal(proposal: Proposal, prompt: string): Promise<Meet
   return response.json();
 }
 
-async function requestProposal(message: string): Promise<MeetingProjection> {
+async function requestProposal(meetingId: string, message: string): Promise<MeetingProjection> {
   await ensureOperatorSession();
   const response = await fetch(`/api/meetings/${meetingId}/proposal-requests`, {
     method: "POST",
@@ -346,96 +543,351 @@ function readInitialSection(value: string | null): Section {
   return "meeting";
 }
 
-function Sidebar({
-  status,
-  title,
-  activeSection,
-  onSectionChange,
-  proposalCount,
-  jobCount,
+function writeMeetingUrl(meetingId: string, section: Section, demoMode: boolean) {
+  const next = new URL(window.location.href);
+  next.searchParams.set("meeting", meetingId);
+  if (section === "meeting") next.searchParams.delete("section");
+  else next.searchParams.set("section", section);
+  if (demoMode) next.searchParams.set("mode", "demo");
+  else next.searchParams.delete("mode");
+  window.history.replaceState(null, "", `${next.pathname}${next.search}${next.hash}`);
+}
+
+function summaryFromProjection(projection: MeetingProjection | null, meetingId: string): MeetingSummary {
+  return {
+    id: meetingId,
+    title: displayMeetingTitle(projection?.title, meetingId),
+    started_at: null,
+    updated_at: null,
+    source_status: projection?.source.status ?? "idle",
+    transcript_count: projection?.transcript.length ?? 0,
+    question_count: projection?.proposal_requests.length ?? 0,
+    open_suggestion_count:
+      projection?.proposals.filter((proposal) => proposal.status === "proposed").length ?? 0,
+    running_job_count:
+      projection?.jobs.filter((job) => job.status === "queued" || job.status === "running").length ?? 0,
+    output_count: projection?.artifacts.length ?? 0,
+    latest_activity: null,
+  };
+}
+
+function defaultMeetingTitle(): string {
+  return `Meeting ${new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date())}`;
+}
+
+function meetingTitleFallback(meetingId: string | null): string {
+  if (!meetingId) return "No meeting selected";
+  return meetingId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function displayMeetingTitle(title: string | null | undefined, meetingId: string | null): string {
+  if (!title) return meetingTitleFallback(meetingId);
+  return meetingId && title === meetingId ? meetingTitleFallback(meetingId) : title;
+}
+
+function formatMeetingTimestamp(value: string | null | undefined): string {
+  if (!value) return "No activity yet";
+  const epochMatch = value.match(/^(\d{10})\.(\d{3})Z$/);
+  const date = epochMatch
+    ? new Date(Number(epochMatch[1]) * 1000 + Number(epochMatch[2]))
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return value.replace("T", " ").slice(0, 16);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function meetingActivityTimestamp(meeting: MeetingSummary | null): string {
+  return formatMeetingTimestamp(meeting?.updated_at ?? meeting?.started_at ?? meeting?.latest_activity);
+}
+
+function MeetingRail({
+  meetings,
+  selectedMeetingId,
+  busy,
+  onCreateMeeting,
+  onSelectMeeting,
 }: {
-  status: SourceStatus;
-  title: string | null;
-  activeSection: Section;
-  onSectionChange: (section: Section) => void;
-  proposalCount: number;
-  jobCount: number;
+  meetings: MeetingSummary[];
+  selectedMeetingId: string | null;
+  busy: boolean;
+  onCreateMeeting: () => void;
+  onSelectMeeting: (meetingId: string) => void;
 }) {
-  const navItems = [
-    { id: "meeting", Icon: Mic2, label: "Meeting", count: proposalCount },
-    { id: "notes", Icon: FileText, label: "Notes", count: 0 },
-    { id: "jobs", Icon: Bot, label: "Jobs", count: jobCount },
-    { id: "audio", Icon: Volume2, label: "Audio", count: 0 },
-  ] satisfies Array<{ id: Section; Icon: typeof Mic2; label: string; count: number }>;
-  const tone = STATUS_LABEL[status].tone;
   return (
-    <aside className="sidebar">
+    <aside className="sidebar meeting-rail">
       <div className="brand-block">
-        <div className="window-dots" aria-hidden="true">
-          <span className="dot red" />
-          <span className="dot yellow" />
-          <span className="dot green" />
-        </div>
         <div className="brand-mark">S</div>
-        <strong>Standby</strong>
-      </div>
-      <nav className="nav-list" aria-label="Primary">
-        {navItems.map(({ Icon, count, id, label }) => (
-          <button
-            key={id}
-            className={`nav-item ${activeSection === id ? "active" : ""}`}
-            onClick={() => onSectionChange(id)}
-          >
-            <Icon size={18} />
-            <span>{label}</span>
-            {count > 0 ? <span className="nav-count">{count}</span> : null}
-          </button>
-        ))}
-      </nav>
-      <div className="meeting-card">
-        <div className="meeting-row">
-          <strong>{title ?? "No meeting"}</strong>
-          <span className={`live-pill ${tone}`}>{STATUS_LABEL[status].label}</span>
+        <div>
+          <strong>Standby</strong>
+          <span>Meetings</span>
         </div>
-        <p>Local capture · macOS</p>
       </div>
+      <button className="new-meeting-button" onClick={onCreateMeeting} disabled={busy}>
+        <Plus size={16} /> New meeting
+      </button>
+      <nav className="meeting-list" aria-label="Meetings">
+        {meetings.length === 0 ? (
+          <div className="meeting-list-empty">
+            <strong>No meetings</strong>
+            <p>Create a meeting to start collecting transcript, questions, actions, and outputs.</p>
+          </div>
+        ) : null}
+        {meetings.map((meeting) => {
+          const meta = STATUS_LABEL[meeting.source_status];
+          const active = selectedMeetingId === meeting.id;
+          return (
+          <button
+            key={meeting.id}
+            className={`meeting-list-item ${active ? "active" : ""}`}
+            onClick={() => onSelectMeeting(meeting.id)}
+          >
+            <span className="meeting-list-title">
+              <span className={`status-dot ${meta.tone}`} />
+              <strong>{displayMeetingTitle(meeting.title, meeting.id)}</strong>
+            </span>
+            <time>{meetingActivityTimestamp(meeting)}</time>
+            <span className="meeting-counts" aria-label="Meeting summary counts">
+              <span>{meeting.open_suggestion_count} suggestions</span>
+              <span>{meeting.running_job_count} running</span>
+              <span>{meeting.output_count} outputs</span>
+            </span>
+          </button>
+          );
+        })}
+      </nav>
     </aside>
   );
 }
 
-function TopBar({ status, title }: { status: SourceStatus; title: string }) {
+function MeetingHeader({
+  meetings,
+  selectedMeetingId,
+  title,
+  summary,
+  status,
+  source,
+  activeSection,
+  busy,
+  capturing,
+  isDemo,
+  proposalCount,
+  jobCount,
+  artifactCount,
+  transcriptCount,
+  onSectionChange,
+  onSelectMeeting,
+  onCreateMeeting,
+  onRenameMeeting,
+  onStart,
+  onStop,
+  onDemo,
+}: {
+  meetings: MeetingSummary[];
+  selectedMeetingId: string | null;
+  title: string;
+  summary: MeetingSummary | null;
+  status: SourceStatus;
+  source: SourceState | null;
+  activeSection: Section;
+  busy: boolean;
+  capturing: boolean;
+  isDemo: boolean;
+  proposalCount: number;
+  jobCount: number;
+  artifactCount: number;
+  transcriptCount: number;
+  onSectionChange: (section: Section) => void;
+  onSelectMeeting: (meetingId: string) => void;
+  onCreateMeeting: () => void;
+  onRenameMeeting: (title: string) => void;
+  onStart: () => void;
+  onStop: () => void;
+  onDemo: () => void;
+}) {
   const meta = STATUS_LABEL[status];
+  const failure = source?.failure
+    ? FAILURE_TEXT[source.failure.reason] ?? source.failure.detail ?? source.failure.reason
+    : null;
   return (
-    <header className="topbar">
-      <div className="status-cluster">
-        <span className={`status-dot ${meta.tone}`} />
-        <strong>{meta.label}</strong>
-        <span className="divider" />
-        <span>{title}</span>
+    <header className="topbar meeting-header">
+      <div className="meeting-header-main">
+        <div className="mobile-brand-row">
+          <div className="brand-mark">S</div>
+          <strong>Standby</strong>
+        </div>
+        {selectedMeetingId ? (
+          <MeetingTitleEditor title={title} busy={busy} onRename={onRenameMeeting} />
+        ) : (
+          <div className="meeting-title-display">
+            <h1>No meeting selected</h1>
+            <p>Create a meeting or pick one from the rail.</p>
+          </div>
+        )}
+        <div className="meeting-meta-line">
+          <span className={`status-dot ${meta.tone}`} />
+          <strong>{meta.label}</strong>
+          <span>{meetingActivityTimestamp(summary)}</span>
+          {summary ? (
+            <span>
+              {summary.question_count} asked / {summary.transcript_count} source
+            </span>
+          ) : null}
+        </div>
       </div>
+      <div className="meeting-header-actions">
+        <label className="mobile-meeting-select">
+          <span>Meeting</span>
+          <select
+            value={selectedMeetingId ?? ""}
+            onChange={(event) => {
+              if (event.target.value) onSelectMeeting(event.target.value);
+            }}
+          >
+            <option value="">Select meeting</option>
+            {meetings.map((meeting) => (
+              <option key={meeting.id} value={meeting.id}>
+                {displayMeetingTitle(meeting.title, meeting.id)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedMeetingId ? (
+          capturing ? (
+            <button className="primary danger" onClick={onStop} disabled={busy}>
+              <Square size={16} /> Stop
+            </button>
+          ) : (
+            <button className="primary" onClick={onStart} disabled={busy}>
+              <PlayCircle size={17} /> Start
+            </button>
+          )
+        ) : (
+          <button className="primary" onClick={onCreateMeeting} disabled={busy}>
+            <Plus size={16} /> New
+          </button>
+        )}
+        {isDemo && selectedMeetingId ? (
+          <button onClick={onDemo} disabled={busy}>
+            Reload demo
+          </button>
+        ) : (
+          <a className="ghost-link button-like" href="?mode=demo&meeting=demo">
+            Demo
+          </a>
+        )}
+      </div>
+      {selectedMeetingId ? (
+        <MeetingViewTabs
+          activeSection={activeSection}
+          proposalCount={proposalCount}
+          jobCount={jobCount}
+          artifactCount={artifactCount}
+          transcriptCount={transcriptCount}
+          onSectionChange={onSectionChange}
+        />
+      ) : null}
+      {failure ? (
+        <div className="failure-note header-failure">
+          <AlertTriangle size={15} /> {failure}
+        </div>
+      ) : null}
     </header>
   );
 }
 
-function MobileSectionTabs({
+function MeetingTitleEditor({
+  title,
+  busy,
+  onRename,
+}: {
+  title: string;
+  busy: boolean;
+  onRename: (title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  useEffect(() => {
+    setDraft(title);
+    setEditing(false);
+  }, [title]);
+
+  function submit() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === title) {
+      setDraft(title);
+      setEditing(false);
+      return;
+    }
+    onRename(trimmed);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <form
+        className="meeting-title-edit"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={submit}
+          autoFocus
+          maxLength={120}
+        />
+      </form>
+    );
+  }
+
+  return (
+    <div className="meeting-title-display">
+      <h1>{title}</h1>
+      <button className="icon-button" onClick={() => setEditing(true)} disabled={busy} title="Rename meeting">
+        <PencilLine size={15} />
+      </button>
+    </div>
+  );
+}
+
+function MeetingViewTabs({
   activeSection,
   onSectionChange,
   proposalCount,
   jobCount,
+  artifactCount,
+  transcriptCount,
 }: {
   activeSection: Section;
   onSectionChange: (section: Section) => void;
   proposalCount: number;
   jobCount: number;
+  artifactCount: number;
+  transcriptCount: number;
 }) {
   const navItems = [
-    { id: "meeting", label: "Meeting", count: proposalCount },
-    { id: "notes", label: "Notes", count: 0 },
-    { id: "jobs", label: "Jobs", count: jobCount },
+    { id: "meeting", label: "Action stream", count: proposalCount },
+    { id: "jobs", label: "Outputs", count: artifactCount || jobCount },
+    { id: "notes", label: "Source", count: transcriptCount },
     { id: "audio", label: "Audio", count: 0 },
   ] satisfies Array<{ id: Section; label: string; count: number }>;
   return (
-    <nav className="mobile-section-tabs" aria-label="Meeting views">
+    <nav className="meeting-view-tabs" aria-label="Meeting views">
       {navItems.map(({ id, label, count }) => (
         <button
           key={id}
@@ -447,6 +899,27 @@ function MobileSectionTabs({
         </button>
       ))}
     </nav>
+  );
+}
+
+function EmptyMeetingState({
+  busy,
+  onCreateMeeting,
+}: {
+  busy: boolean;
+  onCreateMeeting: () => void;
+}) {
+  return (
+    <section className="empty-meeting-view">
+      <div>
+        <Sparkles size={24} />
+        <h1>Start with a meeting</h1>
+        <p>Each transcript, question, suggested action, agent run, and output now belongs to a named meeting.</p>
+        <button className="primary" onClick={onCreateMeeting} disabled={busy}>
+          <Plus size={17} /> New meeting
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -565,45 +1038,15 @@ function LaneMeter({
   );
 }
 
-function CaptureControls({
-  isDemo,
-  capturing,
-  busy,
+function TranscriptSearchControls({
   transcriptQuery,
   onTranscriptQueryChange,
-  onStart,
-  onStop,
-  onDemo,
 }: {
-  isDemo: boolean;
-  capturing: boolean;
-  busy: boolean;
   transcriptQuery: string;
   onTranscriptQueryChange: (query: string) => void;
-  onStart: () => void;
-  onStop: () => void;
-  onDemo: () => void;
 }) {
   return (
-    <div className="capture-controls">
-      {capturing ? (
-        <button className="primary danger" onClick={onStop} disabled={busy}>
-          <Square size={16} /> Stop capture
-        </button>
-      ) : (
-        <button className="primary" onClick={onStart} disabled={busy}>
-          <PlayCircle size={17} /> Start capture
-        </button>
-      )}
-      {isDemo ? (
-        <button onClick={onDemo} disabled={busy}>
-          Reload demo
-        </button>
-      ) : (
-        <a className="ghost-link" href="?mode=demo&meeting=demo">
-          Open demo
-        </a>
-      )}
+    <div className="transcript-search-controls">
       <label className="search-field compact">
         <Search size={16} />
         <input
@@ -629,12 +1072,22 @@ function TranscriptList({
 }) {
   const empty = segments.length === 0 && !partial;
   const trimmedQuery = query.trim().toLowerCase();
+  const { turns, partialTurn } = useMemo(() => {
+    const timeline = buildTranscriptTimeline(segments);
+    return {
+      turns: buildTranscriptTurns(timeline),
+      partialTurn: partial ? buildPartialTranscriptTurn(partial, timeline) : null,
+    };
+  }, [segments, partial]);
   const newestFirst = useMemo(() => {
-    const ordered = [...segments].reverse();
+    const ordered = [...turns].reverse();
     if (!trimmedQuery) return ordered;
-    return ordered.filter((segment) => transcriptMatches(segment, trimmedQuery));
-  }, [segments, trimmedQuery]);
-  const partialVisible = partial && (!trimmedQuery || transcriptMatches(partial, trimmedQuery));
+    return ordered.filter((turn) => transcriptTurnMatches(turn, trimmedQuery));
+  }, [turns, trimmedQuery]);
+  const partialVisible: TranscriptTurn | null =
+    partialTurn && (!trimmedQuery || transcriptTurnMatches(partialTurn, trimmedQuery))
+      ? partialTurn
+      : null;
   return (
     <div className="transcript-list latest-first" aria-live="polite">
       {empty ? <TranscriptEmpty status={status} /> : null}
@@ -645,24 +1098,17 @@ function TranscriptList({
         </div>
       ) : null}
       {partialVisible ? (
-        <article className="transcript-row partial">
-          <span className={`avatar ${speakerTone(partial.speaker)}`}>{speakerInitials(partial.speaker)}</span>
-          <div>
-            <strong>{speakerLabel(partial.speaker)}</strong>
-            <p className="partial-text">{partial.text}…</p>
-          </div>
-          <time>{formatTime(partial.start_ms)}</time>
-        </article>
+        <TranscriptTurnRow turn={partialVisible} partial />
       ) : null}
       {newestFirst.map((segment) => (
-        <TranscriptRow key={segment.id} segment={segment} />
+        <TranscriptTurnRow key={segment.id} turn={segment} />
       ))}
     </div>
   );
 }
 
-function transcriptMatches(segment: TranscriptSegment, query: string): boolean {
-  return `${speakerLabel(segment.speaker)} ${segment.text}`.toLowerCase().includes(query);
+function transcriptTurnMatches(turn: TranscriptTurn, query: string): boolean {
+  return `${speakerLabel(turn.speaker)} ${turn.text}`.toLowerCase().includes(query);
 }
 
 function TranscriptEmpty({ status }: { status: SourceStatus }) {
@@ -692,17 +1138,109 @@ function TranscriptEmpty({ status }: { status: SourceStatus }) {
   );
 }
 
-function TranscriptRow({ segment }: { segment: TranscriptSegment }) {
+function TranscriptTurnRow({ turn, partial = false }: { turn: TranscriptTurn; partial?: boolean }) {
   return (
-    <article className="transcript-row">
-      <span className={`avatar ${speakerTone(segment.speaker)}`}>{speakerInitials(segment.speaker)}</span>
-      <div>
-        <strong>{speakerLabel(segment.speaker)}</strong>
-        <p>{segment.text}</p>
+    <article className={`transcript-row${partial ? " partial" : ""}`}>
+      <span className={`avatar ${speakerTone(turn.speaker)}`}>{speakerInitials(turn.speaker)}</span>
+      <div className="transcript-copy">
+        <div className="transcript-speaker-line">
+          <strong>{speakerLabel(turn.speaker)}</strong>
+          <small>{turn.segments.length} span{turn.segments.length === 1 ? "" : "s"}</small>
+        </div>
+        <p className={partial ? "partial-text" : undefined}>{partial ? `${turn.text}…` : turn.text}</p>
       </div>
-      <time>{formatTime(segment.start_ms)}</time>
+      <time>{formatTimeRange(turn.start_ms, turn.end_ms)}</time>
     </article>
   );
+}
+
+function buildTranscriptTimeline(segments: TranscriptSegment[]): DisplayTranscriptSegment[] {
+  if (!transcriptNeedsSyntheticTimeline(segments)) {
+    return segments.map((segment) => ({
+      ...segment,
+      display_start_ms: segment.start_ms,
+      display_end_ms: Math.max(segment.end_ms, segment.start_ms),
+    }));
+  }
+
+  let cursor = 0;
+  return segments.map((segment) => {
+    const duration = Math.max(1_500, segment.end_ms - segment.start_ms, estimateSpeechDurationMs(segment.text));
+    const displaySegment = {
+      ...segment,
+      display_start_ms: cursor,
+      display_end_ms: cursor + duration,
+    };
+    cursor = displaySegment.display_end_ms + 250;
+    return displaySegment;
+  });
+}
+
+function transcriptNeedsSyntheticTimeline(segments: TranscriptSegment[]): boolean {
+  if (segments.length < 3) return false;
+  const starts = segments.map((segment) => segment.start_ms);
+  const distinctStarts = new Set(starts).size;
+  const monotonic = starts.every((start, index) => index === 0 || start >= starts[index - 1]);
+  const allAtZero = starts.every((start) => start === 0);
+  const tooFewDistinctStarts = distinctStarts <= Math.max(2, Math.floor(segments.length / 3));
+  return allAtZero || !monotonic || tooFewDistinctStarts;
+}
+
+function estimateSpeechDurationMs(text: string): number {
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.min(8_000, Math.max(1_800, wordCount * 360));
+}
+
+function buildPartialTranscriptTurn(
+  partial: TranscriptSegment,
+  timeline: DisplayTranscriptSegment[],
+): TranscriptTurn {
+  const lastEnd = timeline.at(-1)?.display_end_ms ?? 0;
+  const rawStart = partial.start_ms > 0 ? partial.start_ms : lastEnd;
+  const rawEnd = Math.max(partial.end_ms, rawStart + estimateSpeechDurationMs(partial.text));
+  const displayPartial: DisplayTranscriptSegment = {
+    ...partial,
+    display_start_ms: rawStart,
+    display_end_ms: rawEnd,
+  };
+  return segmentToTurn(displayPartial);
+}
+
+function buildTranscriptTurns(segments: DisplayTranscriptSegment[]): TranscriptTurn[] {
+  const turns: TranscriptTurn[] = [];
+  for (const segment of segments) {
+    const previous = turns.at(-1);
+    if (previous && shouldMergeTranscriptSegment(previous, segment)) {
+      previous.segments.push(segment);
+      previous.end_ms = Math.max(previous.end_ms, segment.display_end_ms);
+      previous.text = normalizeTranscriptText(`${previous.text} ${segment.text}`);
+    } else {
+      turns.push(segmentToTurn(segment));
+    }
+  }
+  return turns;
+}
+
+function shouldMergeTranscriptSegment(turn: TranscriptTurn, segment: DisplayTranscriptSegment): boolean {
+  const sameSpeaker = speakerLabel(turn.speaker) === speakerLabel(segment.speaker);
+  const gap = segment.display_start_ms - turn.end_ms;
+  const combinedLength = turn.text.length + segment.text.length;
+  return sameSpeaker && gap <= 8_000 && turn.segments.length < 6 && combinedLength < 560;
+}
+
+function segmentToTurn(segment: DisplayTranscriptSegment): TranscriptTurn {
+  return {
+    id: segment.id,
+    speaker: segment.speaker,
+    start_ms: segment.display_start_ms,
+    end_ms: segment.display_end_ms,
+    text: normalizeTranscriptText(segment.text),
+    segments: [segment],
+  };
+}
+
+function normalizeTranscriptText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function ProposalCard({
@@ -823,6 +1361,140 @@ function AskStandbyBox({
         </button>
       </div>
     </form>
+  );
+}
+
+function MeetingActionStream({
+  projection,
+  status,
+  activeProposals,
+  latestNoProposal,
+  proposalCount,
+  jobCount,
+  artifactCount,
+  busy,
+  error,
+  transcriptQuery,
+  onTranscriptQueryChange,
+  onRequestProposal,
+  onApprove,
+  onIgnore,
+}: {
+  projection: MeetingProjection | null;
+  status: SourceStatus;
+  activeProposals: Proposal[];
+  latestNoProposal: NoProposal | null;
+  proposalCount: number;
+  jobCount: number;
+  artifactCount: number;
+  busy: boolean;
+  error: string | null;
+  transcriptQuery: string;
+  onTranscriptQueryChange: (query: string) => void;
+  onRequestProposal: (message: string) => void;
+  onApprove: (proposal: Proposal, prompt: string) => void;
+  onIgnore: (proposal: Proposal) => void;
+}) {
+  const jobs = useMemo(() => [...(projection?.jobs ?? [])].reverse(), [projection?.jobs]);
+  const artifacts = useMemo(() => [...(projection?.artifacts ?? [])].reverse(), [projection?.artifacts]);
+  const transcript = projection?.transcript ?? [];
+  const hasStreamItems =
+    activeProposals.length > 0 || jobs.length > 0 || artifacts.length > 0 || latestNoProposal !== null;
+
+  return (
+    <section className="action-layout">
+      <section className="action-main-panel" aria-label="Action stream">
+        <header className="action-header">
+          <div>
+            <h1>Action stream</h1>
+            <p>Suggested work, running jobs, and completed outputs in one readable feed.</p>
+          </div>
+          <WorkIndicatorDock proposals={proposalCount} jobs={jobCount} artifacts={artifactCount} transcript={transcript.length} />
+        </header>
+        <div className="action-stream-list">
+          {!hasStreamItems ? (
+            <EmptyWork
+              icon={Sparkles}
+              title="No action items yet"
+              body="Ask Standby for work or keep listening until a proposal appears."
+            />
+          ) : null}
+          {activeProposals.map((proposal) => (
+            <ProposalCard
+              key={proposal.id}
+              proposal={proposal}
+              onApprove={(prompt) => onApprove(proposal, prompt)}
+              onIgnore={() => onIgnore(proposal)}
+            />
+          ))}
+          {jobs.map((job) => (
+            <JobCard key={job.id} job={job} />
+          ))}
+          {artifacts.map((artifact) => (
+            <ResultCard key={artifact.id} artifact={artifact} />
+          ))}
+          {latestNoProposal ? <NoProposalEvent noProposal={latestNoProposal} /> : null}
+        </div>
+      </section>
+      <aside className="action-companion" aria-label="Ask and source">
+        <AskStandbyBox
+          disabled={busy}
+          transcriptCount={transcript.length}
+          onRequestProposal={onRequestProposal}
+        />
+        {error ? <div className="failure-note companion-error">{error}</div> : null}
+        <details className="source-drawer">
+          <summary>
+            <span>Meeting source</span>
+            <small>{transcript.length} transcript span{transcript.length === 1 ? "" : "s"}</small>
+          </summary>
+          <TranscriptSearchControls
+            transcriptQuery={transcriptQuery}
+            onTranscriptQueryChange={onTranscriptQueryChange}
+          />
+          <TranscriptList
+            segments={transcript}
+            partial={projection?.partial ?? null}
+            status={status}
+            query={transcriptQuery}
+          />
+        </details>
+      </aside>
+    </section>
+  );
+}
+
+function WorkIndicatorDock({
+  proposals,
+  jobs,
+  artifacts,
+  transcript,
+}: {
+  proposals: number;
+  jobs: number;
+  artifacts: number;
+  transcript: number;
+}) {
+  return (
+    <div className="work-indicators" aria-label="Available meeting views">
+      <span><strong>{proposals}</strong> suggestions</span>
+      <span><strong>{jobs}</strong> running/work</span>
+      <span><strong>{artifacts}</strong> outputs</span>
+      <span><strong>{transcript}</strong> source</span>
+    </div>
+  );
+}
+
+function NoProposalEvent({ noProposal }: { noProposal: NoProposal }) {
+  return (
+    <article className="no-proposal-event">
+      <div>
+        <Sparkles size={17} />
+        <strong>No card created</strong>
+      </div>
+      <p>{noProposal.model.provider} returned no action: {humanReason(noProposal.reason)}.</p>
+      {noProposal.operator_message ? <small>Request: {noProposal.operator_message}</small> : null}
+    </article>
   );
 }
 
@@ -1300,6 +1972,12 @@ function formatTime(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatTimeRange(startMs: number, endMs: number): string {
+  const start = formatTime(startMs);
+  const end = formatTime(endMs);
+  return start === end ? start : `${start}-${end}`;
 }
 
 function formatDuration(ms: number): string {

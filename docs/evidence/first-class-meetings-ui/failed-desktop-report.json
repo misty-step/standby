@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "url": "http://127.0.0.1:4331/?meeting=qa-failed",
+  "viewport": {
+    "width": 1280,
+    "height": 880,
+    "mode": "desktop"
+  },
+  "screenshot": "failed-desktop.png",
+  "dom": "failed-desktop.html",
+  "consoleErrors": [],
+  "networkErrors": [],
+  "pageErrors": []
+}

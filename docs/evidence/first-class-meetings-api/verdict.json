@@ -1,0 +1,22 @@
+{
+  "status": "pass",
+  "claim": "Meetings are first-class API objects with scoped transcript, questions, proposals, jobs, and outputs.",
+  "meetings": [
+    {
+      "id": "meeting_18bcabd35885d200_f214_1",
+      "title": "Customer discovery sync",
+      "transcript_count": 1,
+      "question_count": 1,
+      "open_suggestion_count": 1,
+      "output_count": 0
+    },
+    {
+      "id": "meeting_18bcabd35fc95cf8_f214_3",
+      "title": "Launch review",
+      "transcript_count": 1,
+      "question_count": 1,
+      "open_suggestion_count": 0,
+      "output_count": 1
+    }
+  ]
+}

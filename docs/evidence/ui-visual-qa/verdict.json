@@ -1,6 +1,6 @@
 {
   "status": "pass",
-  "checked_at": "2026-06-21T00:01:17.076Z",
+  "checked_at": "2026-06-25T17:42:55.702Z",
   "claim": "Standby UI renders the main operational states across desktop and mobile without console or network errors.",
   "states": [
     "idle",

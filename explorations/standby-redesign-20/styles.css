@@ -1,0 +1,253 @@
+:root {
+  color-scheme: light;
+  --ink: #10151f;
+  --muted: #606a7a;
+  --line: #d8dde6;
+  --paper: #f2f4f7;
+  --panel: #ffffff;
+  --accent: #245fd5;
+  --focus: #245fd5;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #e8ecf2;
+  color: var(--ink);
+  letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #aeb7c6;
+}
+
+button:focus-visible {
+  outline: 3px solid rgba(36, 95, 213, 0.28);
+  outline-offset: 2px;
+}
+
+.lab-shell {
+  width: 100vw;
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: 286px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.registry {
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: #f9fafc;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  padding: 16px;
+  gap: 14px;
+}
+
+.registry-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #10151f;
+  color: #fff;
+  font-weight: 900;
+}
+
+.registry-brand strong,
+.stage-bar strong {
+  display: block;
+}
+
+.registry-brand span:not(.brand-mark),
+.stage-bar span,
+.registry-meta,
+#viewportReadout {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.registry-meta {
+  display: flex;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.variation-list {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.variation-link {
+  text-align: left;
+  justify-content: flex-start;
+  min-height: 70px;
+  padding: 8px 10px;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  background: transparent;
+  line-height: 1.15;
+}
+
+.variation-link span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.18;
+}
+
+.variation-link.active {
+  border-color: #9eb5ef;
+  background: #edf3ff;
+  color: #0f4bc2;
+}
+
+.stage {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 14px;
+  gap: 12px;
+}
+
+.stage-bar,
+.stage-footer {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.viewport-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.viewport-controls button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.viewport-controls button.active {
+  background: #10151f;
+  border-color: #10151f;
+  color: #fff;
+}
+
+.frame-wrap {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #cfd6e2;
+  border-radius: 10px;
+  background: #cfd6e2;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: white;
+}
+
+.frame-wrap.fixed iframe {
+  width: var(--frame-width);
+  height: var(--frame-height);
+  transform: scale(var(--frame-scale));
+  transform-origin: center;
+  border-radius: 8px;
+  box-shadow: 0 18px 46px rgba(16, 21, 31, 0.24);
+}
+
+#nextButton {
+  min-width: 156px;
+  background: #10151f;
+  border-color: #10151f;
+  color: #fff;
+}
+
+@media (max-width: 860px) {
+  body {
+    overflow: auto;
+  }
+
+  .lab-shell {
+    height: auto;
+    min-height: 100dvh;
+    grid-template-columns: 1fr;
+  }
+
+  .registry {
+    display: none;
+  }
+
+  .stage {
+    min-height: 100dvh;
+    padding: 10px;
+  }
+
+  .stage-bar,
+  .stage-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .viewport-controls {
+    width: 100%;
+  }
+
+  .viewport-controls button,
+  #nextButton {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+}

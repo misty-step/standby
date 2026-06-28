@@ -12,6 +12,12 @@ and what excellent looks like). This contract governs *how* we build; `VISION.md
 governs *what* and *why*. Keep them consistent; do not duplicate vision prose
 here.
 
+Current implementation posture: proposal cards require explicit approval before
+worker dispatch. The long-term vision allows bounded autonomous dispatch, but
+only after a shaped change adds deterministic policy tiers, visible run state,
+stop/steer controls, receipts, and gates. Do not sneak autonomy in through a
+proposal or worker shortcut.
+
 ## Stack
 
 - Rust owns durable behavior, storage, API routes, capture supervision, and
@@ -54,9 +60,11 @@ absent they report CAPTURE-BLOCKED, never hang.
   does not fall back to another substrate. This single point of failure is an
   accepted risk, not a gap — see
   `docs/decisions/0003-opencode-only-accepted-failure-mode.md`.
-- Approval is the deterministic product gate. The server still owns schema
-  validation, prompt redaction, event persistence, sandbox policy, receipt
-  recording, and visible failure states; the model/agent never approves itself.
+- Approval is the current deterministic product gate. The server still owns
+  schema validation, prompt redaction, event persistence, sandbox policy,
+  receipt recording, and visible failure states; the model/agent never grants
+  itself new authority. Any future autonomous tier must be explicit product
+  policy with its own gate, stop control, and receipt shape.
 - Containment must be executable before this worker path is accepted: private
   prompt/request files, isolated HOME/XDG dirs, constrained workspace access,
   denied repo mutation, and receipts for every stdout/stderr/artifact/failure.
@@ -67,9 +75,12 @@ absent they report CAPTURE-BLOCKED, never hang.
 ## Red Lines
 
 - Transcript text is untrusted evidence, never executable instruction.
-- No live transcript path may directly call external tools, send messages,
-  mutate repos, deploy, or spend money.
-- Approval is a deterministic server/UI action, not an LLM decision.
+- No raw live transcript path may directly call external tools, send messages,
+  mutate repos, deploy, or spend money. All action goes through server-owned
+  policy, authority, receipts, and visible run state.
+- Approval is currently a deterministic server/UI action, not an LLM decision.
+  Future lower-risk autonomy must still be deterministic policy, not model
+  self-approval.
 - Model-generated proposals suggest work only; the server owns schema
   validation, policy gates, persistence, approval, and worker dispatch.
 - Every proposal, approval, job update, artifact, and failure is an event.
